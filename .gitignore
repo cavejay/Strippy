@@ -1,6 +1,6 @@
 /*
 /*/
 !.gitignore
-!Sanitisr.ps1
+!strippy.ps1
 !tests
 !test.ps1
