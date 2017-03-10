@@ -14,11 +14,11 @@
     That group will then be replaced with a generic string of your choice.
     An example for IP addresses is included in the generated config file.
 
-    Make use of the tool by reading the examples from: get-help .\Sanitisr.ps1 -examples
+    Make use of the tool by reading the examples from: get-help .\strippy.ps1 -examples
     
     If you haven't alerady then you'll need to change your execution policy to run this tool. 
     You can do this temporarily by using the following:
-        powershell [-noexit] -executionpolicy Unrestricted -File .\Sanitisr.ps1 <args>
+        powershell [-noexit] -executionpolicy Unrestricted -File .\strippy.ps1 <args>
     Or permanently by opening Powershell and running the following:
         Set-ExecutionPolicy Unrestricted https://ss64.com/ps/set-executionpolicy.html
 
@@ -46,7 +46,7 @@
     Compatability: Powershell 3+
 
 .LINK
-    https://github.com/cavejay/LogSanitisr
+    https://github.com/cavejay/Strippy
 #>
 
 # Logs we cover: 
@@ -62,7 +62,7 @@ param (
     [Switch] $Recusive = $false, 
     # not implemented
     [switch] $InPlace, 
-    # Creates a barebones sanitisrConfig.json file for the user to fill edit
+    # Creates a barebones strippyConfig.json file for the user to fill edit
     [switch] $MakeConfig, 
     # A shortcut for -AlternateKeyListOutput
     [string] $keyout, 
@@ -106,7 +106,7 @@ if ( $Verbose -and -not $Silent) {
 
 # Check if we're _just_ creating a default config file
 if ( $MakeConfig ) {
-    $confloc = "$( Get-Location )\sanitisrConfig.json"
+    $confloc = "$( Get-Location )\strippyConfig.json"
     $defaultConfig = '{
     "_Comment": "These are the defaults. You should alter them. Please go do",
     "UseMe": true,
@@ -406,7 +406,7 @@ if ( $Config ) {
 # If we didn't get told what config to use check locally for a 'UseMe' config file
 if (-not $configUsed -and -not $SelfContained) {
     try {
-        $tmp_f = "$( Get-location )\sanitisrConfig.json"
+        $tmp_f = "$( Get-location )\strippyConfig.json"
         $configText = [IO.file]::ReadAllText($tmp_f)
         $tmp_r = $true
     } catch {
@@ -437,7 +437,7 @@ Continuing now will only sanitise IP addresses and Windows UNC paths
 Would you like to continue with only these? 
 y/n> (y) "
     if ( $ans -eq 'n' ) {
-        Write-Information "Use the -MakeConfig argument to create a sanitisrConfig.json file and start added indicators"
+        Write-Information "Use the -MakeConfig argument to create a strippyConfig.json file and start added indicators"
         exit 0;
     }
 }
