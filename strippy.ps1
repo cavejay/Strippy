@@ -29,8 +29,8 @@
     # Support .zips as well.
     # folder structure replication for folders
     # Recursive folder support
-    # Figure out how to write a get-help
     # Have a blacklist of regexs. 
+    # When single file is a thing makeconfig flag generates a config that matches what's inside the file
     # Dealing with selections of files a la "server.*.log" or similar
     write tests. lol
 
@@ -56,11 +56,11 @@
 param (
     # The File or Folder you wish to sanitise
     [string] $File, 
-     # The tool will run silently, without printing to the terminal
+     # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
     [switch] $Silent,
     # not implemented
     [Switch] $Recusive = $false, 
-    # not implemented
+    # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [switch] $InPlace, 
     # Creates a barebones strippyConfig.json file for the user to fill edit
     [switch] $MakeConfig, 
@@ -222,7 +222,12 @@ function proc-config-file ( $cf ) {
 
     Write-Verbose "Attemping JSON -> PSObject transform"
     # turn into PS object
-    $c = ConvertFrom-Json $cf
+    try {
+        $c = ConvertFrom-Json $cf -ErrorAction Stop
+    } catch {
+        Write-Error "Config file error:`n$_"
+        exit 0
+    }
 
     Write-Verbose "Applying Config to script"
     # Split up and assign all the pieces to their variables
@@ -316,10 +321,12 @@ function Sanitise ( [string] $content, [string] $fp, [string] $filename) {
     # Add first line to show sanitation
     $content = $SanitisedFileFirstline + $content
 
-    # Create output file's name
-    $fpParts = $fp -split '\.'
-    $fp = $fpParts[0..$( $fpParts.Length-2 )] -join '.' 
-    $fp += '.sanitised.' + $fpParts[ $( $fpParts.Length-1 ) ]
+    if ( -not $InPlace ) {
+        # Create output file's name
+        $fpParts = $fp -split '\.'
+        $fp = $fpParts[0..$( $fpParts.Length-2 )] -join '.' 
+        $fp += '.sanitised.' + $fpParts[ $( $fpParts.Length-1 ) ]
+    }
 
     # Add file to $listOfSanitisedFiles
     $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $fp";
