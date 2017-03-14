@@ -23,6 +23,7 @@
         Set-ExecutionPolicy Unrestricted https://ss64.com/ps/set-executionpolicy.html
 
     # Todo
+    # When single file is a thing makeconfig flag generates a config that matches what's inside the file
     # Get logs from support site
     # write up doco for examples
     # Publish to dxs wiki
@@ -30,7 +31,6 @@
     # folder structure replication for folders
     # Recursive folder support
     # Have a blacklist of regexs. 
-    # When single file is a thing makeconfig flag generates a config that matches what's inside the file
     # Dealing with selections of files a la "server.*.log" or similar
     write tests. lol
 
@@ -94,6 +94,21 @@ $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 # General config 
 $PWD = Get-Location
 
+# Types of Keys: Machines, IPs and Users
+$key = @{}
+
+# List to export with Keys
+$listOfSanitisedFiles = @()
+
+# Flags
+# usernames, hostnames, ip addresses ## DSN is different!
+$flags = New-Object System.Collections.ArrayList
+# $flags.AddRange(@(
+        # Format: (regex, Label to Replace)
+        # 'UNC' path \\servername\path\path
+        # 'db users' JDBC_USER: <user>
+    # ))
+
 # Output Settings
 $oldInfoPref = $InformationPreference
 if ($Silent) { $InformationPreference = "ContinueSilently" } else { $InformationPreference = "Continue" }
@@ -151,25 +166,8 @@ if ( -not (Test-Path $File) ) {
     exit -1
 }
 
-# Types of Keys: Machines, IPs and Users
-$key = @{}
-
-# List to export with Keys
-$listOfSanitisedFiles = @()
-
-# Flags
-# usernames, hostnames, ip addresses ## DSN is different!
-$flags = New-Object System.Collections.ArrayList
-# $flags.AddRange(@(
-        # Format: (regex, Label to Replace)
-        # 'UNC' path \\servername\path\path
-        # 'db users' JDBC_USER: <user>
-    # ))
-
-
 #######################################################################################33
 # Function definitions
-
 
 # This should be run before the script is closed
 function Clean-Up () {
