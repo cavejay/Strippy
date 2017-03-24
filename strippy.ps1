@@ -81,7 +81,7 @@ param (
 # Special Variables: (Not overwritten by config files)
 # If this script is self contained then all config is specified in the script itself and config files are not necessary or warned about. 
 # This cuts down the amount of files necessary to move between computers and makes it easier to give to someone and say "run this"
-$SelfContained = $false 
+$SelfContained = $false
 
 ## Variables: (Over written by any config file)
 $IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications')
@@ -124,18 +124,36 @@ if ( $MakeConfig ) {
     $confloc = "$( Get-Location )\strippyConfig.json"
     $defaultConfig = '{
     "_Comment": "These are the defaults. You should alter them. Please go do",
-    "UseMe": true,
-    "IgnoredStrings": ["/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications"],
-    "SanitisedFileFirstLine": "This file was Sanitised at %date%`n==`n`n",
-    "KeyListFirstline": "This keylist was created at %date%.`n",
+    "UseMe": %useme%,
+    "IgnoredStrings": [%ignoredstrings%],
+    "SanitisedFileFirstLine": "%logfirstline%",
+    "KeyListFirstline": "%keyfirstline%",
 
     "KeyFile": "",
     "indicators": [
-        ["Some Regex String here", "Replacement here"],
-        ["((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", "Address"]
+        %indicators%
     ]
 }
 '
+    if ( $SelfContained ) {
+        Write-Verbose "In single file mode. Exporting most of the config from file"
+        # In here we export all the variables we've set above and such.
+        $defaultConfig = $defaultConfig -replace '%useme%', "false"
+        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
+        $defaultConfig = $defaultConfig -replace '%logfirstline%', ""
+        $defaultConfig = $defaultConfig -replace '%keyfirstline%', ""
+        $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
+        $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
+    }
+
+    # Fill areas of the default config
+    $defaultConfig = $defaultConfig -replace '%useme%', "true"
+    $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
+    $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
+    $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
+    $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
+    [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"]"
+
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
         Write-Information "A config file already exists. Would you like to overwrite it with the default?"
@@ -544,9 +562,9 @@ if ( $isDir -and $Recusive) {
 } else {
     Write-Verbose "$File is a file"
     Write-Information "Gathering Keys from $File"
-    $singlefile = Find-Keys $File
+    $file_ = Find-Keys $File
 
-    Sanitise $singlefile $(Get-Item $File).FullName
+    Sanitise $file_ $(Get-Item $File).FullName
 }
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
