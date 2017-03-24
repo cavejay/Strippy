@@ -23,7 +23,6 @@
         Set-ExecutionPolicy Unrestricted https://ss64.com/ps/set-executionpolicy.html
 
     # Todo
-    # When single file is a thing makeconfig flag generates a config that matches what's inside the file
     # Get logs from support site
     # write up doco for examples
     # Publish to dxs wiki
@@ -79,7 +78,7 @@ param (
 )
 
 # Special Variables: (Not overwritten by config files)
-# If this script is self contained then all config is specified in the script itself and config files are not necessary or warned about. 
+# If this script is self contained then all config is specified in the script itself and config files are not necessary or requested for. 
 # This cuts down the amount of files necessary to move between computers and makes it easier to give to someone and say "run this"
 $SelfContained = $false
 
@@ -105,7 +104,9 @@ $listOfSanitisedFiles = @()
 $flags = New-Object System.Collections.ArrayList
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
-    [System.Tuple]::Create("[^\d_:](\d\d?\d?\.\d\d?\d?\.\d\d?\d?\.\d\d?\d?)[^\d]", 'address')
+    [System.Tuple]::Create("[^\d_:](\d\d?\d?\.\d\d?\d?\.\d\d?\d?\.\d\d?\d?)[^\d]", 'Address'),
+    [System.Tuple]::Create("\\\\(.*?)\\", "Hostname")
+
         # Format: (regex, Label to Replace)
         # 'UNC' path \\servername\path\path
         # 'db users' JDBC_USER: <user>
