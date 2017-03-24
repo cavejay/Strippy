@@ -103,11 +103,13 @@ $listOfSanitisedFiles = @()
 # Flags
 # usernames, hostnames, ip addresses ## DSN is different!
 $flags = New-Object System.Collections.ArrayList
-# $flags.AddRange(@(
+$defaultFlags = New-Object System.Collections.ArrayList
+$defaultFlags.AddRange(@(
+    [System.Tuple]::Create("[^\d_:](\d\d?\d?\.\d\d?\d?\.\d\d?\d?\.\d\d?\d?)[^\d]", 'address')
         # Format: (regex, Label to Replace)
         # 'UNC' path \\servername\path\path
         # 'db users' JDBC_USER: <user>
-    # ))
+    ))
 
 # Output Settings
 $oldInfoPref = $InformationPreference
@@ -432,19 +434,20 @@ if (-not $configUsed -and -not $SelfContained) {
         $tmp_f = "$( Get-location )\strippyConfig.json"
         $configText = [IO.file]::ReadAllText($tmp_f)
         $tmp_r = $true
+
+        # Check it has the UseMe field set to true before continuing
+        if ( $tmp_r -and $configText -match '"UseMe"\s*?:\s*?true\s*?,') { # should probs test this
+            Write-Verbose "Found local default config file to use, importing it's settings"
+            proc-config-file $configText
+            $configUsed = $true
+        } else {
+            Write-Verbose "Ignored local config file due to false or missing UseMe value."
+        }
+
     } catch {
         write-verbose "Could not find a local config file"
-        break;
     }
 
-    # Check it has the UseMe field set to true before continuing
-    if ( $tmp_r -and $configText -match '"UseMe"\s*?:\s*?true\s*?,') { # should probs test this
-        Write-Verbose "Found local default config file to use, importing it's settings"
-        proc-config-file $configText
-        $configUsed = $true
-    } else {
-        Write-Verbose "Ignored local config file due to false or missing UseMe value."
-    }
 }
 
 # If we still don't have a config then we need user input
@@ -462,6 +465,9 @@ y/n> (y) "
     if ( $ans -eq 'n' ) {
         Write-Information "Use the -MakeConfig argument to create a strippyConfig.json file and start added indicators"
         exit 0;
+    } else {
+        # Use default flags mentioned in the thingy
+        $script:flags = $defaultFlags
     }
 }
 
