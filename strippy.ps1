@@ -26,10 +26,12 @@
     # Get logs from support site
     # write up doco for examples
     # Publish to dxs wiki
+    # allow more than just .log and .txt files. think xml and the like as well.
     # Support .zips as well.
     # folder structure replication for folders
     # Recursive folder support
     # Have a blacklist of regexs. 
+    # seriously consider using xml instead of json. 
     # Dealing with selections of files a la "server.*.log" or similar
     write tests. lol
 
@@ -127,6 +129,7 @@ if ( $MakeConfig ) {
     $confloc = "$( Get-Location )\strippyConfig.json"
     $defaultConfig = '{
     "_Comment": "These are the defaults. You should alter them. Please go do",
+    "_version": 0.1,
     "UseMe": %useme%,
     "IgnoredStrings": [%ignoredstrings%],
     "SanitisedFileFirstLine": "%logfirstline%",
@@ -320,16 +323,10 @@ function Gen-Key-Name ( $token ) {
     return $possiblename
 }
 
-## Recursively Sanitises files that it finds in a folder tree
-function Recurse-Dir ( [string] $folder ) {
-    # Do all the stuff here
-    Write-Verbose "This would be a recursive function"
-}
-
 ## Sanitises a file and stores sanitised data in a key
-function Sanitise ( [string] $content, [string] $fp, [string] $filename) {
+function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
     # Process file for items found using tokens
-    Write-Information "Sanitising file: $filename"
+    Write-Information "Sanitising file: $filenameIN"
     foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
         Write-Debug "   Substituting $($k.value) -> $($k.key)"
         write-when-normal -NoNewline '.'
@@ -342,16 +339,16 @@ function Sanitise ( [string] $content, [string] $fp, [string] $filename) {
 
     if ( -not $InPlace ) {
         # Create output file's name
-        $fpParts = $fp -split '\.'
-        $fp = $fpParts[0..$( $fpParts.Length-2 )] -join '.' 
-        $fp += '.sanitised.' + $fpParts[ $( $fpParts.Length-1 ) ]
+        $filenameParts = $filenameOUT -split '\.'
+        $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
+        $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
     }
 
     # Add file to $listOfSanitisedFiles
-    $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $fp";
+    $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
 
     # Save file as .santised.extension
-    $content | Out-File -Encoding ASCII $fp
+    $content | Out-File -Encoding ASCII $filenameOUT
 }
 
 ## Build the key table for all the files
@@ -359,7 +356,7 @@ function Find-Keys ( [string] $fp ) {
     Write-Verbose "Finding Keys in $fp"
 
     # Open file
-    $f = [IO.file]::ReadAllText( "$(Get-Location)\$fp" )
+    $f = [IO.file]::ReadAllText( $fp )
     
     # Process file for tokens
     foreach ( $token in $flags ) {
@@ -505,29 +502,27 @@ Write-Verbose "Attempting to Santise $File."
 ## Detect files
 # is it a directory?
 $isDir = $( get-item $File ).Mode -eq 'd-----'
-if ( $isDir -and $Recusive) {
-    Write-Verbose "Starting recursion of "
-    # Recursively go through the directory
-    Recurse-Dir $File | Out-Null
-
-# Just go through the single directory and ignore folders
-} elseif ( $isDir ) {
+if ( $isDir ) {
     Write-Verbose "$File is a folder"
 
-    # Get all the .txt and .log files
-    $files = Get-ChildItem $File | Where-Object { 
+    # Get all the files
+    if ($Recusive) {
+        $files = Get-ChildItem $File -Recurse -File
+    } else {
+        $files = Get-ChildItem $File
+    }
+
+    # Filter for only the .txt and .log files and the absolute directory of each file
+    $files = $files | Where-Object { 
         ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and -not
         ( $_.name -like '*.sanitised.*')
-    }
-    
-    # Check if there's nothing there to proc'
-    if ( $files -eq $null ) {
+    } | ForEach-Object {$_.FullName}
+
+    # Check if there's anything there to proc'
+    if ( $files.Length -eq 0 ) {
         Write-Verbose "There were no files to Sanitise in $File"
         Clean-Up
     }
-    
-    # Enter the folder
-    Set-Location $File
 
     # Build key list
     foreach ( $f in $files ) {
@@ -538,27 +533,22 @@ if ( $isDir -and $Recusive) {
     }
 
     # Create output folders if needed
+    $OutputFolder = $(Get-item AlternateOutputFolder).FullName
     if ($AlternateOutputFolder) {
-        Set-Location $PWD # Take us to where we started
-        md $AlternateOutputFolder -Force | Out-Null # Make the new dir
-        Set-Location $AlternateOutputFolder # Go to the new dir
-        $AlternateOutputFolder = Get-Location # Save the new dir's absolute path
-        Set-Location $PWD; Set-Location $File # Put us back where we were to begin with
-        
+        md $AlternateOutputFolder -Force | Out-Null # Make the new dir        
         Write-Information "Using Alternate Folder for output: $AlternateOutputFolder"
     } else {
-        Write-Information "Made output folder: $(Get-Location).sanitised\"
-        mkdir "$(Get-Location).sanitised" -Force | Out-Null
+        Write-Information "Made output folder: $File.sanitised\"
+        mkdir "$File.sanitised" -Force | Out-Null
+        $OutputFolder = $(Get-Item "$File.sanitised").FullName
     }
 
     # Sanitise using key list
     foreach ($f in $files ) {
-        $Currentloc = "$(Get-Location)\$f"
+        # If we're using a alternate output folder, use it
+        $filenameOUT = @("$(Get-Location).sanitised\$f", "$AlternateOutputFolder\$f")[$AlternateOutputFolder] # this is a powershell turnary statement
 
-        # If we're using a preference do it
-        $loc = @("$(Get-Location).sanitised\$f", "$AlternateOutputFolder\$f")[$AlternateOutputFolder] # this is a powershell turnary statement
-
-        Sanitise $([IO.file]::ReadAllText( $Currentloc )) $loc $(get-item $Currentloc).Name
+        Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
     }
 
 # We also want to support archives by treating them as folders we just have to unpack first
@@ -569,9 +559,9 @@ if ( $isDir -and $Recusive) {
 } else {
     Write-Verbose "$File is a file"
     Write-Information "Gathering Keys from $File"
-    $file_ = Find-Keys $File
+    $file_content = Find-Keys $(get-item $File).FullName
 
-    Sanitise $file_ $(Get-Item $File).FullName
+    Sanitise $file_content $File $(Get-Item $File).FullName
 }
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
