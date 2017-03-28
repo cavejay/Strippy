@@ -22,36 +22,52 @@
     Or permanently by opening Powershell and running the following:
         Set-ExecutionPolicy Unrestricted https://ss64.com/ps/set-executionpolicy.html
 
-    # Todo
-    # Get logs from support site
-    # write up doco for examples
-    # Publish to dxs wiki
-    # allow more than just .log and .txt files. think xml and the like as well.
-    # Support .zips as well.
-    # folder structure replication for folders
-    # Recursive folder support
-    # Have a blacklist of regexs. 
-    # seriously consider using xml instead of json. 
-    # Dealing with selections of files a la "server.*.log" or similar
-    write tests. lol
+.EXAMPLE
+    C:\PS> .\strippy.ps1 .\logs
+
+    This is the typical usecase and will sanitise only the files directly in .\logs using a default config file.
+    Output files will be in the .\logs.sanitised folder and the keylist created for the logs will be found directory you the script.
 
 .EXAMPLE
-    # todo 
-    C:\PS> 
-    todo
-    <Description of example>
+    C:\PS> .\strippy.ps1 .\logs\server.1.log
+
+    In this case only one file has been specified for sanitisation. The output in this case would be to .\logs\server.1.sanitised.log file and a keylist file .\KeyList.txt
+
+.EXAMPLE
+    C:\PS> .\strippy.ps1 ..\otherlogs\servers\oldlog.log -KeyFile .\KeyList.txt
+
+    This would process the oldlog.log file like any other file, but will load in the keys already found from a key list file. This means you can process files at different times but still have their keys matchup. Once done, this usecase will output a keylist that contains all the keys from KeyList.txt and any new keys found in the oldlog.log file.
+
+.EXAMPLE
+    C:\PS> .\strippy.ps1 .\logs -Recurse
+
+    If you need to sanitise an entire file tree, then use the -Recurse flag to iterate through each file in a folder and it's subfolders.
+
+.EXAMPLE
+    C:\PS> .\strippy.ps1 "C:\Program Files\Dynatrace\CAS\Server\logs" -Recurse -Silent -out "C:\sanitised-$(get-date -UFormat %s)"
+
+    This example shows how you might integrate strippy in an automation scheme. The -Silent flag stops output to stdout, preventing the need for a stdout redirect. The -out flag allows redirection of the sanitised files to a custom folder.
 
 .NOTES
     Author: Michael Ball
-    Version: 170308
+    Version: 170328
     Compatability: Powershell 3+
 
 .LINK
     https://github.com/cavejay/Strippy
 #>
 
-# Logs we cover: 
-#   CAS
+# Todo
+# figure out a way to support all files with utf-8 encoding or ascii or the like
+# Get logs from support site
+# Publish to dxs wiki
+# allow more than just .log and .txt files. think xml and the like as well.
+# Support .zips as well.
+# Have a blacklist of regexs. 
+# seriously consider using xml instead of json. 
+# Dealing with selections of files a la "server.*.log" or similar
+# write tests. lol
+# Make -Silent print output to a file? 
 
 [CmdletBinding()]
 param (
@@ -60,7 +76,7 @@ param (
      # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
     [switch] $Silent,
     # Looks for log files throughout a directory tree rather than only in the first level
-    [Switch] $Recusive = $false, 
+    [Switch] $Recurse = $false, 
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [switch] $InPlace, 
     # Creates a barebones strippyConfig.json file for the user to fill edit
@@ -509,7 +525,7 @@ if ( $isDir ) {
     Write-Verbose "$File is a folder"
 
     # Get all the files
-    if ($Recusive) {
+    if ($Recurse) {
         $files = Get-ChildItem $File -Recurse -File
     } else {
         $files = Get-ChildItem $File
@@ -551,7 +567,7 @@ if ( $isDir ) {
     # Sanitise using key list
     foreach ($f in $files ) {
         $relativePath = ($f -split ($File -replace '\\','\\'))[1]
-        $FilenameOUT = "$OutputFolder$relativePath"
+        $FilenameOUT = "$OutputFolder\$relativePath"
 
         Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
     }
