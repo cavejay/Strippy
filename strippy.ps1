@@ -122,7 +122,7 @@ $listOfSanitisedFiles = @()
 $flags = New-Object System.Collections.ArrayList
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
-    [System.Tuple]::Create("[^\d_:](\d\d?\d?\.\d\d?\d?\.\d\d?\d?\.\d\d?\d?)[^\d]", 'Address'),
+    [System.Tuple]::Create("((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", 'Address'),
     [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
 
         # Format: (regex, Label to Replace)
