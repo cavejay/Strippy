@@ -59,7 +59,7 @@ param (
     [string] $File, 
      # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
     [switch] $Silent,
-    # not implemented
+    # Looks for log files throughout a directory tree rather than only in the first level
     [Switch] $Recusive = $false, 
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [switch] $InPlace, 
@@ -95,7 +95,7 @@ $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 # General config 
 $PWD = Get-Location
 
-# Types of Keys: Machines, IPs and Users
+# The list of keys we find
 $key = @{}
 
 # List to export with Keys
@@ -107,10 +107,9 @@ $flags = New-Object System.Collections.ArrayList
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
     [System.Tuple]::Create("[^\d_:](\d\d?\d?\.\d\d?\d?\.\d\d?\d?\.\d\d?\d?)[^\d]", 'Address'),
-    [System.Tuple]::Create("\\\\(.*?)\\", "Hostname")
+    [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
 
         # Format: (regex, Label to Replace)
-        # 'UNC' path \\servername\path\path
         # 'db users' JDBC_USER: <user>
     ))
 
@@ -348,7 +347,10 @@ function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameO
     $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
 
     # Save file as .santised.extension
-    $content | Out-File -Encoding ASCII $filenameOUT
+    if (test-path $filenameOUT) {} else {
+        New-Item -Force $filenameOUT | Out-Null
+    }
+    $content | Out-File -force -Encoding ASCII $filenameOUT
 }
 
 ## Build the key table for all the files
