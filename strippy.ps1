@@ -498,6 +498,7 @@ if ( $KeyFile ) {
 }
 
 Write-Verbose "Attempting to Santise $File."
+$File = $(Get-Item $File).FullName
 
 ## Detect files
 # is it a directory?
@@ -532,21 +533,23 @@ if ( $isDir ) {
         Write-Verbose "Got $($key.count - $pre) keys from $f"
     }
 
-    # Create output folders if needed
-    $OutputFolder = $(Get-item AlternateOutputFolder).FullName
+    # Create and set output folders if needed
+    $OutputFolder = ''
     if ($AlternateOutputFolder) {
         md $AlternateOutputFolder -Force | Out-Null # Make the new dir        
-        Write-Information "Using Alternate Folder for output: $AlternateOutputFolder"
+        $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
+        Write-Information "Using Alternate Folder for output: $OutputFolder"
     } else {
         Write-Information "Made output folder: $File.sanitised\"
+        $File = $File[0..$($File.length-2)] -join ""
         mkdir "$File.sanitised" -Force | Out-Null
         $OutputFolder = $(Get-Item "$File.sanitised").FullName
     }
 
     # Sanitise using key list
     foreach ($f in $files ) {
-        # If we're using a alternate output folder, use it
-        $filenameOUT = @("$(Get-Location).sanitised\$f", "$AlternateOutputFolder\$f")[$AlternateOutputFolder] # this is a powershell turnary statement
+        $relativePath = ($f -split ($File -replace '\\','\\'))[1]
+        $FilenameOUT = "$OutputFolder$relativePath"
 
         Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
     }
