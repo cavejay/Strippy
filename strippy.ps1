@@ -173,7 +173,8 @@ if ( $MakeConfig ) {
     $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
     $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
     $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
-    [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"]"
+    [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
+    [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
 
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
@@ -449,7 +450,7 @@ if (-not $configUsed -and -not $SelfContained) {
     try {
         $tmp_f = "$( Get-location )\strippyConfig.json"
         $configText = [IO.file]::ReadAllText($tmp_f)
-        $tmp_r = $true
+        $tmp_r = $true # Why is this here???
 
         # Check it has the UseMe field set to true before continuing
         if ( $tmp_r -and $configText -match '"UseMe"\s*?:\s*?true\s*?,') { # should probs test this
@@ -463,7 +464,6 @@ if (-not $configUsed -and -not $SelfContained) {
     } catch {
         write-verbose "Could not find a local config file"
     }
-
 }
 
 # If we still don't have a config then we need user input
@@ -558,10 +558,13 @@ if ( $isDir ) {
         $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
         Write-Information "Using Alternate Folder for output: $OutputFolder"
     } else {
-        Write-Information "Made output folder: $File.sanitised\"
-        $File = $File[0..$($File.length-2)] -join ""
-        New-Item -ItemType directory -Path "$File.sanitised" -Force | Out-Null
-        $OutputFolder = $(Get-Item "$File.sanitised").FullName
+        $p = $(Get-Item $File).Parent.FullName
+        $f = $(Get-Item $File).Name
+        $f = "$p\$f.sanitised"
+        
+        New-Item -ItemType directory -Path "$f" -Force | Out-Null
+        Write-Information "Made output folder: $f"
+        $OutputFolder = $(Get-Item "$f").FullName
     }
 
     # Sanitise using key list
