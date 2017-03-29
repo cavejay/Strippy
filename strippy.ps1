@@ -554,13 +554,13 @@ if ( $isDir ) {
     # Create and set output folders if needed
     $OutputFolder = ''
     if ($AlternateOutputFolder) {
-        md $AlternateOutputFolder -Force | Out-Null # Make the new dir        
+        New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
         $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
         Write-Information "Using Alternate Folder for output: $OutputFolder"
     } else {
         Write-Information "Made output folder: $File.sanitised\"
         $File = $File[0..$($File.length-2)] -join ""
-        mkdir "$File.sanitised" -Force | Out-Null
+        New-Item -ItemType directory -Path "$File.sanitised" -Force | Out-Null
         $OutputFolder = $(Get-Item "$File.sanitised").FullName
     }
 
