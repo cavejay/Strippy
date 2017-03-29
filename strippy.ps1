@@ -16,7 +16,7 @@
 
     Make use of the tool by reading the examples from: get-help .\strippy.ps1 -examples
     
-    If you haven't alerady then you'll need to change your execution policy to run this tool. 
+    If you haven't already then you'll need to change your execution policy to run this tool. 
     You can do this temporarily by using the following:
         powershell [-noexit] -executionpolicy Unrestricted -File .\strippy.ps1 <args>
     Or permanently by opening Powershell and running the following:
@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 170328
+    Version: 170329
     Compatability: Powershell 3+
 
 .LINK
