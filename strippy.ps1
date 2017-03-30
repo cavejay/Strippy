@@ -339,6 +339,41 @@ function Gen-Key-Name ( $token ) {
     return $possiblename
 }
 
+function Get-FileEncoding {
+# This function is only included here to preserve this as a single file.
+# Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
+    [CmdletBinding()]
+    param (
+        [Alias("PSPath")]
+        [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName = $True)]
+        [String]$Path,
+
+        [Parameter(Mandatory = $False)]
+        [System.Text.Encoding]$DefaultEncoding = [System.Text.Encoding]::ASCII
+    )
+    
+    process {
+        [Byte[]]$bom = Get-Content -Encoding Byte -ReadCount 4 -TotalCount 4 -Path $Path
+        $encoding_found = $false
+        foreach ($encoding in [System.Text.Encoding]::GetEncodings().GetEncoding()) {
+            $preamble = $encoding.GetPreamble()
+            if ($preamble) {
+                foreach ($i in 0..$preamble.Length) {
+                    if ($preamble[$i] -ne $bom[$i]) {
+                        break
+                    } elseif ($i -eq $preable.Length) {
+                        $encoding_found = $encoding
+                    }
+                }
+            }
+        }
+        if (!$encoding_found) {
+            $encoding_found = $DefaultEncoding
+        }
+        $encoding_found
+    }
+}
+
 ## Sanitises a file and stores sanitised data in a key
 function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
     # Process file for items found using tokens
@@ -533,13 +568,14 @@ if ( $isDir ) {
 
     # Filter for only the .txt and .log files and the absolute directory of each file
     $files = $files | Where-Object { 
-        ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and -not
+        # ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and 
+        ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not 
         ( $_.name -like '*.sanitised.*')
-    } | ForEach-Object {$_.FullName}
+    } | ForEach-Object {$_.FullName} 
 
     # Check if there's anything there to proc'
     if ( $files.Length -eq 0 ) {
-        Write-Verbose "There were no files to Sanitise in $File"
+        Write-Information "There were no files to Sanitise in $File"
         Clean-Up
     }
 
@@ -563,7 +599,7 @@ if ( $isDir ) {
         $f = "$p\$f.sanitised"
         
         New-Item -ItemType directory -Path "$f" -Force | Out-Null
-        Write-Information "Made output folder: $f"
+        Write-Verbose "Made output folder: $f"
         $OutputFolder = $(Get-Item "$f").FullName
     }
 
