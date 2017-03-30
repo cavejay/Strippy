@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 170329
+    Version: 170330
     Compatability: Powershell 3+
 
 .LINK
@@ -61,7 +61,6 @@
 # figure out a way to support all files with utf-8 encoding or ascii or the like
 # Get logs from support site
 # Publish to dxs wiki
-# allow more than just .log and .txt files. think xml and the like as well.
 # Support .zips as well.
 # Have a blacklist of regexs. 
 # seriously consider using xml instead of json. 
