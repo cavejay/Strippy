@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 170330
+    Version: 170608
     Compatability: Powershell 3+
 
 .LINK
@@ -58,15 +58,13 @@
 #>
 
 # Todo
-# figure out a way to support all files with utf-8 encoding or ascii or the like
+# Dealing with selections of files a la "server.*.log" or similar
+# Make -Silent print output to a file? 
 # Get logs from support site
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs. 
-# seriously consider using xml instead of json. 
-# Dealing with selections of files a la "server.*.log" or similar
 # write tests. lol
-# Make -Silent print output to a file? 
 
 [CmdletBinding()]
 param (
@@ -380,7 +378,7 @@ function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameO
     foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
         Write-Debug "   Substituting $($k.value) -> $($k.key)"
         write-when-normal -NoNewline '.'
-        $content = $content -replace $k.value, $k.key
+        $content = $content -replace [regex]::Escape($k.value), $k.key
     }
     write-when-normal ''
 
