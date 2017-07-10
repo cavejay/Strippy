@@ -28,7 +28,7 @@ Sanitise files as part of a time based automation task: `C:\PS> .\strippy.ps1 "C
 
 Below is an example of a config file that should handle most, if not all of the sanitisation for the log files from a Dynatrace Data Center Real User Monitoring (DCRUM) installation. It is being kept as current as possible so that as I encounter more cases that require sanitisation this example will updated.
 
-```json
+```
 {
     "_Comment": "This file contains rules to sanitise most log files created by DCRUM.",
     "UseMe": true,
