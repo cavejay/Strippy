@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Tool for sanitising log files based on configured "indicators"
+    Tool for sanitising utf8 encoded files based on configured "indicators"
 
 .DESCRIPTION
     Use this tool to automate the replacement of sensitive data in text files with generic strings.
@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 170608
+    Version: 170710
     Compatability: Powershell 3+
 
 .LINK
@@ -61,9 +61,12 @@
 # Dealing with selections of files a la "server.*.log" or similar
 # Make -Silent print output to a file? 
 # Get logs from support site
+# Have option diagnotics file or similar that shows how many times each rule was hit
+# Print/Sanitising sometimes breaks?
+# Keys found at the end of lines contain a '...'
 # Publish to dxs wiki
 # Support .zips as well.
-# Have a blacklist of regexs. 
+# Have a blacklist of regexs.
 # write tests. lol
 
 [CmdletBinding()]
@@ -206,8 +209,7 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
-# This should be run before the script is closed
-function Clean-Up () {
+function make-keylist () {
     $kf = "$PWD\KeyList.txt"
     
     # We have Keys?
@@ -223,7 +225,14 @@ function Clean-Up () {
         $KeyOutfile = $KeyListFirstline + $( $key | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
+    } else {
+        Write-Information "No Keys where found to show or output. There will be no key file"
     }
+}
+
+# This should be run before the script is closed
+function Clean-Up () {
+    make-keylist # Make the keylist just incase.
 
     ## Cleanup
     $VerbosePreference = $oldVerbosityPref
@@ -452,7 +461,8 @@ function Find-Keys ( [string] $fp ) {
         }
     }
     if (-not $Silent) {Write-Host "`r"}
-    # //todo intelligently build out keylist further using similar patterns? 
+
+    # //todo intelligently build out keylist further using similar patterns?
     return $f
 }
 
@@ -584,6 +594,9 @@ if ( $isDir ) {
         Write-Verbose "Got $($key.count - $pre) keys from $f"
     }
 
+    # Found the Keys, lets output the keylist
+    make-keylist
+
     # Create and set output folders if needed
     $OutputFolder = ''
     if ($AlternateOutputFolder) {
@@ -617,6 +630,9 @@ if ( $isDir ) {
     Write-Verbose "$File is a file"
     Write-Information "Gathering Keys from $File"
     $file_content = Find-Keys $(get-item $File).FullName
+
+    # Output the keys prior to sanitisation to save all our work so far.
+    make-keylist
 
     Sanitise $file_content $File $(Get-Item $File).FullName
 }
