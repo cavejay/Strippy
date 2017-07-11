@@ -275,12 +275,12 @@ function proc-config-file ( $cf ) {
 
     Write-Verbose "Applying Config to script"
     # Split up and assign all the pieces to their variables
-    $KeyListFirstline = $c.KeyListFirstLine
-    $KeyFile = $c.KeyFile
-    $SanitisedFileFirstline = $c.SanitisedFileFirstline
-    $IgnoredStrings = $c.IgnoredStrings
+    $script:KeyListFirstline = $c.KeyListFirstLine
+    $script:KeyFile = $c.KeyFile
+    $script:SanitisedFileFirstline = $c.SanitisedFileFirstline
+    $script:IgnoredStrings = $c.IgnoredStrings
     foreach ($indicator in $c.indicators) {
-        $flags.Add(
+        $script:flags.Add(
             [System.Tuple]::Create($indicator[0], $indicator[1])
         ) | Out-Null
     }
@@ -399,6 +399,8 @@ function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameO
         $filenameParts = $filenameOUT -split '\.'
         $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
         $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+    } elseif ($AlternateOutputFolder -ne $null) {
+        $filenameOUT = $AlternateOutputFolder
     }
 
     # Add file to $listOfSanitisedFiles
