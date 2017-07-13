@@ -165,16 +165,17 @@ if ( $MakeConfig ) {
         $defaultConfig = $defaultConfig -replace '%keyfirstline%', ""
         $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
         $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
+    } else {
+        # Fill areas of the default config
+        $defaultConfig = $defaultConfig -replace '%useme%', "true"
+        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
+        $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
+        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
+        $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
+        [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
+        [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
     }
 
-    # Fill areas of the default config
-    $defaultConfig = $defaultConfig -replace '%useme%', "true"
-    $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
-    $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
-    $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
-    $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
-    [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
-    [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
 
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
@@ -399,8 +400,6 @@ function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameO
         $filenameParts = $filenameOUT -split '\.'
         $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
         $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
-    } elseif ($AlternateOutputFolder -ne $null) {
-        $filenameOUT = $AlternateOutputFolder
     }
 
     # Add file to $listOfSanitisedFiles
