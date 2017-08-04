@@ -58,6 +58,8 @@
 #>
 
 # Todo
+# Why do we not sanitise files some times
+# write tests. Some things aren't working and we can't check this.
 # Dealing with selections of files a la "server.*.log" or similar
 # Make -Silent print output to a file? 
 # Get logs from support site
@@ -67,7 +69,13 @@
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# write tests. lol
+# Fork Processes and do each file separately, combine keylists and sanitise all. read http://www.get-blog.com/?p=22 use start-job
+# Nicer gui for above showing how far through each process/file is.
+# Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
+# Update the config file to use a nicer ini alternative.
+# More intellient capitalisation resolution.
+# Re-write? :/ 
+# catch all for empty tokens
 
 [CmdletBinding()]
 param (
@@ -383,7 +391,8 @@ function Get-FileEncoding {
 
 ## Sanitises a file and stores sanitised data in a key
 function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
-    # Process file for items found using tokens
+    # Process file for items found using tokens in descending order of length. 
+    # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
     Write-Information "Sanitising file: $filenameIN"
     foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
         Write-Debug "   Substituting $($k.value) -> $($k.key)"
