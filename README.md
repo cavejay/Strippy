@@ -4,7 +4,6 @@ Use this Powershell Script to sanitise your logs of configured patterns before h
 It’s written in powershell and so will run natively on every company laptop with windows which means all you have to do is download the script and give it input files. 
 
 
-
 ## Usage
 
 **This is a Powershell script. It will not execute natively in Window's command prompt**
