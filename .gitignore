@@ -3,4 +3,5 @@
 !.gitignore
 !strippy.ps1
 !tests
-!test.ps1
+!testy.ps1
+!*.Tests.ps1

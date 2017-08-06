@@ -58,7 +58,6 @@
 #>
 
 # Todo
-# Why do we not sanitise files some times
 # write tests. Some things aren't working and we can't check this.
 # Dealing with selections of files a la "server.*.log" or similar
 # Make -Silent print output to a file? 
