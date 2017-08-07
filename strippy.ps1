@@ -76,6 +76,10 @@
 # Re-write? :/ 
 # catch all for empty tokens
 
+<# Maintenance Todo list
+    - Time global sanitise against running all the rules against each and every line in the files.    
+#>
+
 [CmdletBinding()]
 param (
     # The File or Folder you wish to sanitise
