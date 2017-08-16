@@ -608,7 +608,7 @@ if ( $isDir ) {
     $files = $files | Where-Object { 
         # ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and 
         ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
-        ( $(Get-MimeType -CheckFile $_.FullName) -notmatch "image") -and -not
+        ( $(Get-MimeType -CheckFile $_.FullName) -match "image") -and -not
         ( $_.name -like '*.sanitised.*')
     } | ForEach-Object {$_.FullName} 
 
