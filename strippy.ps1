@@ -369,7 +369,6 @@ function Get-FileEncoding {
         [Parameter(Mandatory = $False)]
         [System.Text.Encoding]$DefaultEncoding = [System.Text.Encoding]::ASCII
     )
-    
     process {
         [Byte[]]$bom = Get-Content -Encoding Byte -ReadCount 4 -TotalCount 4 -Path $Path
         $encoding_found = $false
@@ -390,6 +389,25 @@ function Get-FileEncoding {
         }
         $encoding_found
     }
+}
+
+function Get-MimeType() {
+    # From https://gallery.technet.microsoft.com/scriptcenter/PowerShell-Function-to-6429566c#content
+    param([parameter(Mandatory=$true, ValueFromPipeline=$true)][ValidateNotNullorEmpty()][System.IO.FileInfo]$CheckFile) 
+    begin { 
+        Add-Type -AssemblyName "System.Web"         
+        [System.IO.FileInfo]$check_file = $CheckFile 
+        [string]$mime_type = $null 
+    } 
+    process { 
+        if (test-path $check_file) {  
+            $mime_type = [System.Web.MimeMapping]::GetMimeMapping($check_file.FullName)  
+        }
+        else { 
+            $mime_type = "false" 
+        } 
+    } 
+    end { return $mime_type } 
 }
 
 ## Sanitises a file and stores sanitised data in a key
@@ -589,7 +607,8 @@ if ( $isDir ) {
     # Filter for only the .txt and .log files and the absolute directory of each file
     $files = $files | Where-Object { 
         # ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and 
-        ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not 
+        ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
+        ( $(Get-MimeType -CheckFile $_.FullName) -notmatch "image") -and -not
         ( $_.name -like '*.sanitised.*')
     } | ForEach-Object {$_.FullName} 
 
