@@ -115,6 +115,7 @@ $SelfContained = $false
 $IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications')
 $SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
 $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
+$KeyFileName = "KeyList - $( $(Get-data).toString() ).txt"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
