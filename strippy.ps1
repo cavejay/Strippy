@@ -120,7 +120,7 @@ $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
 
 # General config 
-$PWD = Get-Location
+$PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
 
 # The list of keys we find
 $key = @{}
