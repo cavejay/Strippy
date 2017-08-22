@@ -340,23 +340,6 @@ function proc-keyfile ( $kf ) {
     }
 }
 
-# Generates a keyname without doubles
-$nameCounts = @{}
-function Gen-Key-Name ( $token ) {
-    $possiblename = ''
-    do {
-        Write-Debug $token.Item2
-        if ( -not $nameCounts.ContainsKey($token.Item2) ) {
-            $nameCounts[$token.Item2] = 0
-        }
-
-        $nameCounts[$token.Item2]++
-        $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
-        Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $key[$possiblename] )'"
-    } while ( $key[$possiblename] -ne $null )
-    return $possiblename
-}
-
 function Get-FileEncoding {
 # This function is only included here to preserve this as a single file.
 # Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
@@ -410,91 +393,128 @@ function Get-MimeType() {
     end { return $mime_type } 
 }
 
-## Sanitises a file and stores sanitised data in a key
-function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
-    # Process file for items found using tokens in descending order of length. 
-    # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
-    Write-Information "Sanitising file: $filenameIN"
-    foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
-        Write-Debug "   Substituting $($k.value) -> $($k.key)"
-        write-when-normal -NoNewline '.'
-        $content = $content -replace [regex]::Escape($k.value), $k.key
-    }
-    write-when-normal ''
+# Group all the functions that we'll need to run in Jobs as a scriptblock
+$JobFunctions = {
 
-    # Add first line to show sanitation
-    $content = $SanitisedFileFirstline + $content
-
-    if ( -not $InPlace ) {
-        # Create output file's name
-        $filenameParts = $filenameOUT -split '\.'
-        $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
-        $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
-    }
-
-    # Add file to $listOfSanitisedFiles
-    $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
-
-    # Save file as .santised.extension
-    if (test-path $filenameOUT) {} else {
-        New-Item -Force $filenameOUT | Out-Null
-    }
-    $content | Out-File -force -Encoding ASCII $filenameOUT
-}
-
-## Build the key table for all the files
-function Find-Keys ( [string] $fp ) {
-    Write-Verbose "Finding Keys in $fp"
-
-    # Open file
-    $f = [IO.file]::ReadAllText( $fp )
+    # Generates a keyname without doubles
+    $nameCounts = @{}
+    function Gen-Key-Name ( $token ) {
+        $possiblename = ''
+        do {
+            Write-Debug $token.Item2
+            if ( -not $nameCounts.ContainsKey($token.Item2) ) {
+                $nameCounts[$token.Item2] = 0
+            }
     
-    # Process file for tokens
-    foreach ( $token in $flags ) {
-        $pattern = $token.Item1
-        Write-Verbose "Using '$pattern' to find matches"
-        $matches = [regex]::matches($f, $pattern)
+            $nameCounts[$token.Item2]++
+            $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
+            Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $key[$possiblename] )'"
+        } while ( $key[$possiblename] -ne $null )
+        return $possiblename
+    }
+    
+    ## Sanitises a file and stores sanitised data in a key
+    function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
+        # Process file for items found using tokens in descending order of length. 
+        # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
+        Write-Information "Sanitising file: $filenameIN"
+        foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
+            Write-Debug "   Substituting $($k.value) -> $($k.key)"
+            write-when-normal -NoNewline '.'
+            $content = $content -replace [regex]::Escape($k.value), $k.key
+        }
+        write-when-normal ''
+    
+        # Add first line to show sanitation
+        $content = $SanitisedFileFirstline + $content
+    
+        if ( -not $InPlace ) {
+            # Create output file's name
+            $filenameParts = $filenameOUT -split '\.'
+            $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
+            $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+        }
+    
+        # Add file to $listOfSanitisedFiles
+        $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
+    
+        # Save file as .santised.extension
+        if (test-path $filenameOUT) {} else {
+            New-Item -Force $filenameOUT | Out-Null
+        }
+        $content | Out-File -force -Encoding ASCII $filenameOUT
+    }
+    
+    ## Build the key table for all the files
+    function Find-Keys ( [string] $fp ) {
+        Write-Verbose "Finding Keys in $fp"
+    
+        # Open file
+        $f = [IO.file]::ReadAllText( $fp )
         
-        # Grab the value for each match, if it doesn't have a key make one
-        $c1 = $c2 = 0; $o = ' '; $t = $c = '.'
-        foreach ( $m in $matches ) {
-            # Pretty print for normal output
-            $c1++
-            if ($c1 % 10 -eq 0) {
-                $c2++
-                write-when-normal -NoNewline $t
-                if ($c2 % 40*5 -eq 0) {
-                    if ($t -eq $o) {$t = $c} else {$t = $o}
-                    write-when-normal -NoNewline "`r$t"
+        # Process file for tokens
+        foreach ( $token in $flags ) {
+            $pattern = $token.Item1
+            Write-Verbose "Using '$pattern' to find matches"
+            $matches = [regex]::matches($f, $pattern)
+            
+            # Grab the value for each match, if it doesn't have a key make one
+            $c1 = $c2 = 0; $o = ' '; $t = $c = '.'
+            foreach ( $m in $matches ) {
+                # Pretty print for normal output
+                $c1++
+                if ($c1 % 10 -eq 0) {
+                    $c2++
+                    write-when-normal -NoNewline $t
+                    if ($c2 % 40*5 -eq 0) {
+                        if ($t -eq $o) {$t = $c} else {$t = $o}
+                        write-when-normal -NoNewline "`r$t"
+                    }
+                }
+    
+                $mval = $m.groups[1].value
+                Write-Verbose "Matched: $mval"
+    
+                # Do we have a key already?
+                if ( $key.ContainsValue( $mval ) ) {
+                    $k =  $key.GetEnumerator() | Where-Object { $_.Value -eq $mval }
+                    Write-Verbose "Recognised as: $($k.key)"
+                
+                # Check the $IgnoredStrings list
+                } elseif ( $IgnoredStrings.Contains($mval) ) {
+                    Write-Verbose "Found ignored string: $mval"
+    
+                # Create a key and assign it to the match
+                } else { 
+                    Write-Verbose "Found new token! $( $mval )"
+                    $newkey = gen-key-name $token
+                    $key[$newkey] = $mval
+                    Write-Verbose "Made new alias: $newkey"
+                    Write-Information "`rMade new key entry: $( $mval ) -> $newkey"
                 }
             }
-
-            $mval = $m.groups[1].value
-            Write-Verbose "Matched: $mval"
-
-            # Do we have a key already?
-            if ( $key.ContainsValue( $mval ) ) {
-                $k =  $key.GetEnumerator() | Where-Object { $_.Value -eq $mval }
-                Write-Verbose "Recognised as: $($k.key)"
-            
-            # Check the $IgnoredStrings list
-            } elseif ( $IgnoredStrings.Contains($mval) ) {
-                Write-Verbose "Found ignored string: $mval"
-
-            # Create a key and assign it to the match
-            } else { 
-                Write-Verbose "Found new token! $( $mval )"
-                $newkey = gen-key-name $token
-                $key[$newkey] = $mval
-                Write-Verbose "Made new alias: $newkey"
-                Write-Information "`rMade new key entry: $( $mval ) -> $newkey"
-            }
         }
+        if (-not $Silent) {Write-Host "`r"}
+    
+        # //todo intelligently build out keylist further using similar patterns?
+        return $f
     }
-    if (-not $Silent) {Write-Host "`r"}
+}
 
-    # //todo intelligently build out keylist further using similar patterns?
-    return $f
+function Scout-Stripper () {
+
+}
+
+function Sanitising-Stripper () {
+
+}
+ 
+function Merging-Stripper () {
+
+}
+
+function Head-Stripper () {
+    return "stuff"
 }
 
 
@@ -547,7 +567,7 @@ if (-not $configUsed -and -not $SelfContained) {
         exit -9
     }
 
-    $ans = Read-Host "Unable to find Config file to extend the list of indicators used to find sensitive data.
+    $ans = Read-Host "Unable to find a strippyConfig.ini file to extend the list of indicators used to find sensitive data.
 Continuing now will only sanitise IP addresses and Windows UNC paths
 Would you like to continue with only these? 
 y/n> (y) "
@@ -599,12 +619,14 @@ if ( $isDir ) {
 
     # Get all the files
     if ($Recurse) {
+        Write-Verbose "Recursive mode means we get all the files"
         $files = Get-ChildItem $File -Recurse -File
     } else {
+        Write-Verbose "Normal mode means we only get the files at the top directory"
         $files = Get-ChildItem $File
     }
 
-    # Filter for only the .txt and .log files and the absolute directory of each file
+    # Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
     $files = $files | Where-Object { 
         # ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and 
         ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
@@ -612,13 +634,15 @@ if ( $isDir ) {
         ( $_.name -like '*.sanitised.*')
     } | ForEach-Object {$_.FullName} 
 
-    # Check if there's anything there to proc'
+    # If we didn't find any files exit out
     if ( $files.Length -eq 0 ) {
         Write-Information "There were no files to Sanitise in $File"
         Clean-Up
     }
 
-    # Build key list
+    # Start the head stripper with all the information we've just gathered about the task
+    $KeyList = Head-Stripper -isDir -Files $files 
+    # todo
     foreach ( $f in $files ) {
         $pre = $key.count
         Write-Information "Gathering Keys from $f"
