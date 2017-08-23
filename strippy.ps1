@@ -459,19 +459,7 @@ $JobFunctions = {
             $matches = [regex]::matches($f, $pattern)
             
             # Grab the value for each match, if it doesn't have a key make one
-            $c1 = $c2 = 0; $o = ' '; $t = $c = '.'
-            foreach ( $m in $matches ) {
-                # Pretty print for normal output
-                $c1++
-                if ($c1 % 10 -eq 0) {
-                    $c2++
-                    write-when-normal -NoNewline $t
-                    if ($c2 % 40*5 -eq 0) {
-                        if ($t -eq $o) {$t = $c} else {$t = $o}
-                        write-when-normal -NoNewline "`r$t"
-                    }
-                }
-    
+            foreach ( $m in $matches ) {   
                 $mval = $m.groups[1].value
                 Write-Verbose "Matched: $mval"
     
@@ -490,11 +478,10 @@ $JobFunctions = {
                     $newkey = gen-key-name $token
                     $key[$newkey] = $mval
                     Write-Verbose "Made new alias: $newkey"
-                    Write-Information "`rMade new key entry: $( $mval ) -> $newkey"
+                    Write-Information "Made new key entry: $( $mval ) -> $newkey"
                 }
             }
         }
-        if (-not $Silent) {Write-Host "`r"}
     
         # //todo intelligently build out keylist further using similar patterns?
         return $f
