@@ -392,7 +392,7 @@ $JobFunctions = {
 
     # Generates a keyname without doubles
     $nameCounts = @{}
-    function Gen-Key-Name ( $token ) {
+    function Gen-Key-Name ( $keys, $token ) {
         $possiblename = ''
         do {
             Write-Debug $token.Item2
@@ -402,13 +402,14 @@ $JobFunctions = {
     
             $nameCounts[$token.Item2]++
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
-            Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $key[$possiblename] )'"
-        } while ( $key[$possiblename] -ne $null )
+            Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $keys[$possiblename] )'"
+        } while ( $keys[$possiblename] -ne $null )
         return $possiblename
     }
 
     function Save-File () {
         # From here, there this is all output stuff, not actual sanitisation.
+        return "didn'tmakeafile"
         # if ( -not $InPlace ) {
             # Create output file's name
             $filenameParts = $filenameOUT -split '\.'
@@ -443,12 +444,10 @@ $JobFunctions = {
 
     
     ## Build the key table for all the files
-    function Find-Keys ( [string] $fp, $flags ) {
+    function Find-Keys ( [string] $fp, $flags, $IgnoredStrings ) {
         Write-Verbose "Finding Keys in $fp"
-
         # dictionary to populate
         $Keys = @{}
-    
         # Open file
         $f = [IO.file]::ReadAllText( $fp )
         
@@ -459,7 +458,7 @@ $JobFunctions = {
             $matches = [regex]::matches($f, $pattern)
             
             # Grab the value for each match, if it doesn't have a key make one
-            foreach ( $m in $matches ) {   
+            foreach ( $m in $matches ) {
                 $mval = $m.groups[1].value
                 Write-Verbose "Matched: $mval"
     
@@ -475,31 +474,74 @@ $JobFunctions = {
                 # Create a key and assign it to the match
                 } else { 
                     Write-Verbose "Found new token! $( $mval )"
-                    $newkey = gen-key-name $token
+                    $newkey = gen-key-name $Keys $token
                     $Keys[$newkey] = $mval
                     Write-Verbose "Made new alias: $newkey"
-                    Write-Information "Made new key entry: $( $mval ) -> $newkey"
+                    Write-Verbose "Made new key entry: $( $mval ) -> $newkey"
                 }
             }
         }
     
-        # //todo intelligently build out keylist further using similar patterns?
+        Write-Verbose "Keys: $keys"
         return $keys
     }
 }
 
 # Takes a file and outputs it's the keys
-function Scout-Stripper ($file, $flags) {
-    return Find-Keys $file $flags
+function Scout-Stripper ($files, $flags) {
+    Write-Verbose "Started scout stripper"
+    # ForEach ($file in $files) {
+        $j = Start-Job -InitializationScript $JobFunctions -ScriptBlock {
+            PARAM($file, $flags, $IgnoredStrings)
+            
+            Find-Keys $file $flags $IgnoredStrings
+        } -ArgumentList @($files[0], $flags, $IgnoredStrings)
+        Write-Verbose "Made a background job for $files"
+    # }
+    watch-jobs
+    Write-Verbose "Key finding jobs are finished"
+
+    # Collect the output from each of the jobs
+    $jobs = Get-Job -State Completed
+    $keylists = @()
+    ForEach ($job in $jobs) {
+        $keylists += Receive-Job -Keep -Job $job
+    }
+    Write-Debug "retrieved the following from completed jobs:`n$($keylists | Out-String)"
+    
+    # Clean up the jobs
+    Get-Job | Remove-Job
+    Write-Verbose "cleaned up scouting jobs"
+
+    return $keylists
 }
 
-function Sanitising-Stripper ($finalKeyList, $file, $firstline) {
-    $content = [IO.file]::ReadAllText($file)
-    return Sanitise $firstline $finalKeyList $content $file
+function Sanitising-Stripper ($finalKeyList, $files) {
+
+    # Sanitise each of the files with the final keylist and output them with Save-file
+    ForEach ($file in $files) {
+        Start-Job -InitializationScript $JobFunctions -ScriptBlock {
+            PARAM($file, $finalKeyList, $firstline)
+
+            $content = [IO.file]::ReadAllText($file)
+            $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
+            Save-File $file $sanitisedOutput
+        } -ArgumentList @($file, $finalKeyList, $SanitisedFileFirstline)
+    }
+    watch-jobs
+
+    # Collect the names of all the sanitised files
+    $sanitisedFilenames = Get-Job -State Completed | Receive-Job
+
+    # Clean up the jobs
+    Get-Job | Remove-Job
+    
+    return $sanitisedFilenames
 }
- 
-function Merging-Stripper () {
+
+function Merging-Stripper ($keylists) {
     # This logic needs to be written
+    return $keylists[0] #return the first one for now #yolo
 }
 
 function watch-jobs () {
@@ -532,44 +574,22 @@ function watch-jobs () {
 
 function Head-Stripper ($files) {
     # There shouldn't be any other background jobs, but kill them anyway.
+    Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
+    Write-Debug "removed all background jobs"
 
-    # Start a job that collects the keys for each file
-    ForEach ($file in $files) {
-        Start-Job -InitializationScript $JobFunctions -ScriptBlock {
-            PARAM($file, $flags)
-
-            return Scout-Stripper 
-        } -ArgumentList @($file, $flags)
-    }
-    watch-jobs
-
-    # Collect the output from each of the jobs
-    $keylists = Get-Job -State Completed | Receive-Job
-
-    # Clean up the jobs
-    Get-Job | Remove-Job
+    # Use Scout stripper to start looking for the keys in each file
+    $keylists = Scout-Stripper $files $flags
+    Write-verbose "finished finding keys"
 
     # Merge all of the keylists into a single dictionary.
     $finalKeyList = Merging-Stripper $keylists
+    Write-Verbose "Finished merging keylists"
 
-    # Sanitise each of the files with the final keylist and output them with Save-file
-    ForEach ($file in $files) {
-        Start-Job -InitializationScript $JobFunctions -ScriptBlock {
-            PARAM($file, $finalKeyList, $SanitisedFileFirstline)
-
-            $output = Sanitising-Stripper $file $finalKeyList $SanitisedFileFirstline 
-            return Save-File $file $output
-        } -ArgumentList @($file, $finalKeyList, $SanitisedFileFirstline)
-    }
-    watch-jobs
-
-    # Collect the names of all the sanitised files
-    $sanitisedFilenames = Get-Job -State Completed | Receive-Job
-
-    # Clean up the jobs
-    Get-Job | Remove-Job
+    # Sanitise the files
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files
+    Write-verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
 }
@@ -717,6 +737,29 @@ if ( $isDir ) {
     $filesToProcess += $(get-item $File).FullName
 }
 
+# # Create and set output folders if needed
+# $OutputFolder = ''
+# if ($AlternateOutputFolder) {
+#     New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
+#     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
+#     Write-Information "Using Alternate Folder for output: $OutputFolder"
+# } else {
+#     $p = $(Get-Item $File).Parent.FullName
+#     $f = $(Get-Item $File).Name
+#     $f = "$p\$f.sanitised"
+    
+#     New-Item -ItemType directory -Path "$f" -Force | Out-Null
+#     Write-Verbose "Made output folder: $f"
+#     $OutputFolder = $(Get-Item "$f").FullName
+# }
+
+# # Sanitise using key list
+# foreach ($f in $files ) {
+#     $relativePath = ($f -split ($File -replace '\\','\\'))[1]
+#     $FilenameOUT = "$OutputFolder\$relativePath"
+
+#     Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
+# }
 
 ## Start the processing of the files themselves 
 
@@ -726,29 +769,6 @@ $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
 
-# Create and set output folders if needed
-$OutputFolder = ''
-if ($AlternateOutputFolder) {
-    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
-    $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
-    Write-Information "Using Alternate Folder for output: $OutputFolder"
-} else {
-    $p = $(Get-Item $File).Parent.FullName
-    $f = $(Get-Item $File).Name
-    $f = "$p\$f.sanitised"
-    
-    New-Item -ItemType directory -Path "$f" -Force | Out-Null
-    Write-Verbose "Made output folder: $f"
-    $OutputFolder = $(Get-Item "$f").FullName
-}
-
-# Sanitise using key list
-foreach ($f in $files ) {
-    $relativePath = ($f -split ($File -replace '\\','\\'))[1]
-    $FilenameOUT = "$OutputFolder\$relativePath"
-
-    Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
-}
 
 
 
