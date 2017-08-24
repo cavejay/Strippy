@@ -89,7 +89,7 @@ param (
     # Looks for log files throughout a directory tree rather than only in the first level
     [Switch] $Recurse = $false, 
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    [switch] $InPlace, 
+    # [switch] $InPlace, 
     # Creates a barebones strippyConfig.json file for the user to fill edit
     [switch] $MakeConfig, 
     # A shortcut for -AlternateKeyListOutput
@@ -101,7 +101,7 @@ param (
     # Specifies an alternate path or file for the sanitised file
     [String] $AlternateOutputFolder = $out, 
     # Specifies a previously generated keylist file to import keys from for this sanitisation
-    [String] $KeyFile, 
+    # [String] $KeyFile, 
     # Specifies a config file to use rather than the default local file or no file at all.
     [String] $Config
 )
@@ -221,7 +221,7 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
-function make-keylist () {
+function output-keylist () {
     $kf = "$PWD\KeyList.txt"
     
     # We have Keys?
@@ -244,7 +244,7 @@ function make-keylist () {
 
 # This should be run before the script is closed
 function Clean-Up () {
-    make-keylist # Make the keylist just incase.
+    output-keylist # Make the keylist just incase.
 
     ## Cleanup
     $VerbosePreference = $oldVerbosityPref
@@ -299,50 +299,50 @@ function proc-config-file ( $cf ) {
 }
 
 ## Process a KeyFile
-function proc-keyfile ( $kf ) {
-    $kfLines = [IO.file]::ReadAllLines($kf)
+# function proc-keyfile ( $kf ) {
+#     $kfLines = [IO.file]::ReadAllLines($kf)
 
-    # Find length of keylist
-    $startOfFileList = $kfLines.IndexOf("List of files using this Key:")+1
-    $endOfKeyList = $startOfFileList - 4
+#     # Find length of keylist
+#     $startOfFileList = $kfLines.IndexOf("List of files using this Key:")+1
+#     $endOfKeyList = $startOfFileList - 4
 
-    if ( $startOfFileList -eq 0 ) {
-        write-when-normal '' 
-        Write-Error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
-        exit -1
-    }
+#     if ( $startOfFileList -eq 0 ) {
+#         write-when-normal '' 
+#         Write-Error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
+#         exit -1
+#     }
 
-    $dataLines = $kfLines[4..$endOfKeyList]
-    foreach ($d in $dataLines) {
-        $d = $d -replace '\s+', ' ' -split "\s"
-        if ( $d.Length -ne 3) {
-            write-when-normal '' 
-            Write-Error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
-            exit -1
-        }
+#     $dataLines = $kfLines[4..$endOfKeyList]
+#     foreach ($d in $dataLines) {
+#         $d = $d -replace '\s+', ' ' -split "\s"
+#         if ( $d.Length -ne 3) {
+#             write-when-normal '' 
+#             Write-Error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
+#             exit -1
+#         }
 
-        write-when-normal -NoNewline '.'
-        Write-Verbose "Found Key: $($d[0]) & Value: $($d[1])"
-        $k = $d[0]; $v = $d[1]
+#         write-when-normal -NoNewline '.'
+#         Write-Verbose "Found Key: $($d[0]) & Value: $($d[1])"
+#         $k = $d[0]; $v = $d[1]
 
-        if ( $k -eq "" -or $v -eq "") {
-            write-when-normal '' 
-            Write-Error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
-            exit -1
-        }
+#         if ( $k -eq "" -or $v -eq "") {
+#             write-when-normal '' 
+#             Write-Error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
+#             exit -1
+#         }
 
-        $key[$k] = $v
-    }
-    write-when-normal '.'
+#         $key[$k] = $v
+#     }
+#     write-when-normal '.'
 
-    foreach ($d in $kfLines[$startOfFileList..$( $kfLines.Length - 2 )]) {
-        $script:listOfSanitisedFiles += $d;
-    }
-}
+#     foreach ($d in $kfLines[$startOfFileList..$( $kfLines.Length - 2 )]) {
+#         $script:listOfSanitisedFiles += $d;
+#     }
+# }
 
 function Get-FileEncoding {
-# This function is only included here to preserve this as a single file.
-# Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
+    # This function is only included here to preserve this as a single file.
+    # Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
     [CmdletBinding()]
     param (
         [Alias("PSPath")]
@@ -412,28 +412,15 @@ $JobFunctions = {
         } while ( $key[$possiblename] -ne $null )
         return $possiblename
     }
-    
-    ## Sanitises a file and stores sanitised data in a key
-    function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
-        # Process file for items found using tokens in descending order of length. 
-        # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
-        Write-Information "Sanitising file: $filenameIN"
-        foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
-            Write-Debug "   Substituting $($k.value) -> $($k.key)"
-            write-when-normal -NoNewline '.'
-            $content = $content -replace [regex]::Escape($k.value), $k.key
-        }
-        write-when-normal ''
-    
-        # Add first line to show sanitation
-        $content = $SanitisedFileFirstline + $content
-    
-        if ( -not $InPlace ) {
+
+    function Save-File () {
+        # From here, there this is all output stuff, not actual sanitisation.
+        # if ( -not $InPlace ) {
             # Create output file's name
             $filenameParts = $filenameOUT -split '\.'
             $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
             $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
-        }
+        # }
     
         # Add file to $listOfSanitisedFiles
         $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
@@ -445,9 +432,28 @@ $JobFunctions = {
         $content | Out-File -force -Encoding ASCII $filenameOUT
     }
     
+    ## Sanitises a file and stores sanitised data in a key
+    function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
+        # Process file for items found using tokens in descending order of length. 
+        # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
+        Write-Information "Sanitising file: $filename"
+        foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
+            Write-Debug "   Substituting $($key.value) -> $($key.key)"
+            $content = $content -replace [regex]::Escape($key.value), $key.key
+        }
+    
+        # Add first line to show sanitation
+        $content = $SanitisedFileFirstline + $content
+        return $content
+    }
+
+    
     ## Build the key table for all the files
-    function Find-Keys ( [string] $fp ) {
+    function Find-Keys ( [string] $fp, $flags ) {
         Write-Verbose "Finding Keys in $fp"
+
+        # dictionary to populate
+        $Keys = @{}
     
         # Open file
         $f = [IO.file]::ReadAllText( $fp )
@@ -464,8 +470,8 @@ $JobFunctions = {
                 Write-Verbose "Matched: $mval"
     
                 # Do we have a key already?
-                if ( $key.ContainsValue( $mval ) ) {
-                    $k =  $key.GetEnumerator() | Where-Object { $_.Value -eq $mval }
+                if ( $Keys.ContainsValue( $mval ) ) {
+                    $k =  $Keys.GetEnumerator() | Where-Object { $_.Value -eq $mval }
                     Write-Verbose "Recognised as: $($k.key)"
                 
                 # Check the $IgnoredStrings list
@@ -476,7 +482,7 @@ $JobFunctions = {
                 } else { 
                     Write-Verbose "Found new token! $( $mval )"
                     $newkey = gen-key-name $token
-                    $key[$newkey] = $mval
+                    $Keys[$newkey] = $mval
                     Write-Verbose "Made new alias: $newkey"
                     Write-Information "Made new key entry: $( $mval ) -> $newkey"
                 }
@@ -484,27 +490,93 @@ $JobFunctions = {
         }
     
         # //todo intelligently build out keylist further using similar patterns?
-        return $f
+        return $keys
     }
 }
 
-function Scout-Stripper () {
-
+# Takes a file and outputs it's the keys
+function Scout-Stripper ($file, $flags) {
+    return Find-Keys $file $flags
 }
 
-function Sanitising-Stripper () {
-
+function Sanitising-Stripper ($finalKeyList, $file, $firstline) {
+    $content = [IO.file]::ReadAllText($file)
+    return Sanitise $firstline $finalKeyList $content $file
 }
  
 function Merging-Stripper () {
-
+    # This logic needs to be written
 }
 
-function Head-Stripper () {
-    return "stuff"
+function watch-jobs () {
+    # Report the progress While there are still jobs running
+    While ($(Get-Job -State "Running").count -gt 0) {
+        # For each job started and each child of those jobs
+        ForEach ($Job in Get-Job) {
+            ForEach ($Child in $Job.ChildJobs){
+                ## Get the latest progress object of the job
+                $Progress = $Child.Progress[$Child.Progress.Count - 1]
+                
+                ## If there is a progress object returned write progress
+                If ($Progress.Activity -ne $Null){
+                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
+                }
+                
+                ## If this child is complete then stop writing progress
+                If ($Progress.PercentComplete -eq 100){
+                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete  -ID $Job.ID  -Complete
+                    ## Clear all progress entries so we don't process it again
+                    $Child.Progress.Clear()
+                }
+            }
+        }
+
+        ## Setting for loop processing speed
+        Start-Sleep -Milliseconds 100
+    }
 }
 
+function Head-Stripper ($files) {
+    # There shouldn't be any other background jobs, but kill them anyway.
+    Get-Job | Stop-Job
+    Get-job | Remove-Job
 
+    # Start a job that collects the keys for each file
+    ForEach ($file in $files) {
+        Start-Job -InitializationScript $JobFunctions -ScriptBlock {
+            PARAM($file, $flags)
+            return Scout-Stripper 
+        } -ArgumentList @($file, $flags)
+    }
+    watch-jobs
+
+    # Collect the output from each of the jobs
+    $keylists = Get-Job -State Completed | Receive-Job
+
+    # Clean up the jobs
+    Get-Job | Remove-Job
+
+    # Merge all of the keylists into a single dictionary.
+    $finalKeyList = Merging-Stripper $keylists
+
+    # Sanitise each of the files with the final keylist and output them with Save-file
+    ForEach ($file in $files) {
+        Start-Job -InitializationScript $JobFunctions -ScriptBlock {
+            PARAM($file, $finalKeyList)
+            $output = Sanitising-Stripper $file $finalKeyList $SanitisedFileFirstline 
+            return Save-File $file $output
+        }
+    }
+    watch-jobs
+
+    # Collect the names of all the sanitised files
+    $sanitisedFilenames = Get-Job -State Completed | Receive-Job
+
+    # Clean up the jobs
+    Get-Job | Remove-Job
+
+    return @($finalKeyList, $sanitisedFilenames)
+}
 
 ####################################################################################################
 # Start Actual Execution
@@ -567,33 +639,33 @@ y/n> (y) "
     }
 }
 
-if ( $KeyFile ) {
-    # Check the keyfile is legit before we start.
-    Write-Verbose "Checking the KeyFile"
-    if ( Test-Path $KeyFile ) {
-        $kf = Get-Item $KeyFile
-        write-verbose "Key File exists and is: '$kf'"
-    } else {
-        Write-Error "Error: $KeyFile could not be found"
-        exit -1
-    }
+# if ( $KeyFile ) {
+#     # Check the keyfile is legit before we start.
+#     Write-Verbose "Checking the KeyFile"
+#     if ( Test-Path $KeyFile ) {
+#         $kf = Get-Item $KeyFile
+#         write-verbose "Key File exists and is: '$kf'"
+#     } else {
+#         Write-Error "Error: $KeyFile could not be found"
+#         exit -1
+#     }
 
-    if ( $kf.Mode -eq 'd-----' ) {
-        Write-Error "Error: $KeyFile cannot be a directory"
-        Write-Verbose $kf.Mode
-        exit -1
-    } elseif ( $kf.Extension -ne '.txt') {
-        Write-Error "Error: $KeyFile must be a .txt"
-        Write-Verbose "Key file was a '$( $kf.Extension )'"
-        exit -1
-    }
-    # Assume it's a valid format for now and check in the proc-keyfile function
+#     if ( $kf.Mode -eq 'd-----' ) {
+#         Write-Error "Error: $KeyFile cannot be a directory"
+#         Write-Verbose $kf.Mode
+#         exit -1
+#     } elseif ( $kf.Extension -ne '.txt') {
+#         Write-Error "Error: $KeyFile must be a .txt"
+#         Write-Verbose "Key file was a '$( $kf.Extension )'"
+#         exit -1
+#     }
+#     # Assume it's a valid format for now and check in the proc-keyfile function
 
-    Write-Information "Importing Keys from $KeyFile"
-    proc-keyfile $kf.FullName # we need the fullname to load the file in
-    Write-Information "Finished Importing Keys from keyfile:"
-    if (-not $Silent) {$key}
-}
+#     Write-Information "Importing Keys from $KeyFile"
+#     proc-keyfile $kf.FullName # we need the fullname to load the file in
+#     Write-Information "Finished Importing Keys from keyfile:"
+#     if (-not $Silent) {$key}
+# }
 
 Write-Verbose "Attempting to Santise $File."
 $File = $(Get-Item $File).FullName
@@ -628,7 +700,7 @@ if ( $isDir ) {
     }
 
     # Start the head stripper with all the information we've just gathered about the task
-    $KeyList = Head-Stripper -isDir -Files $files 
+    $finalKeyList = Head-Stripper -isDir -Files $files 
     # todo
     foreach ( $f in $files ) {
         $pre = $key.count
@@ -638,7 +710,7 @@ if ( $isDir ) {
     }
 
     # Found the Keys, lets output the keylist
-    make-keylist
+    output-keylist
 
     # Create and set output folders if needed
     $OutputFolder = ''
@@ -675,7 +747,7 @@ if ( $isDir ) {
     $file_content = Find-Keys $(get-item $File).FullName
 
     # Output the keys prior to sanitisation to save all our work so far.
-    make-keylist
+    output-keylist
 
     Sanitise $file_content $File $(Get-Item $File).FullName
 }
