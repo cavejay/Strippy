@@ -122,12 +122,6 @@ $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 # General config 
 $PWD = Get-Location
 
-# The list of keys we find
-$key = @{}
-
-# List to export with Keys
-$listOfSanitisedFiles = @()
-
 # Flags
 # usernames, hostnames, ip addresses ## DSN is different!
 $flags = New-Object System.Collections.ArrayList
@@ -221,11 +215,11 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
-function output-keylist () {
+function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     $kf = "$PWD\KeyList.txt"
     
     # We have Keys?
-    if ( $key.Keys.Count -ne 0) {
+    if ( $finalKeyList.Keys.Count -ne 0) {
         # Do we need to put them somewhere else?
         if ( $AlternateKeyListOutput ) {
             Set-Location $PWD
@@ -234,7 +228,7 @@ function output-keylist () {
         }
 
         Write-Information "`nExporting KeyList to $kf"
-        $KeyOutfile = $KeyListFirstline + $( $key | Out-String )
+        $KeyOutfile = $KeyListFirstline + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
@@ -244,7 +238,7 @@ function output-keylist () {
 
 # This should be run before the script is closed
 function Clean-Up () {
-    output-keylist # Make the keylist just incase.
+    # output-keylist # This should no longer be needed.
 
     ## Cleanup
     $VerbosePreference = $oldVerbosityPref
@@ -545,6 +539,7 @@ function Head-Stripper ($files) {
     ForEach ($file in $files) {
         Start-Job -InitializationScript $JobFunctions -ScriptBlock {
             PARAM($file, $flags)
+
             return Scout-Stripper 
         } -ArgumentList @($file, $flags)
     }
@@ -562,10 +557,11 @@ function Head-Stripper ($files) {
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
         Start-Job -InitializationScript $JobFunctions -ScriptBlock {
-            PARAM($file, $finalKeyList)
+            PARAM($file, $finalKeyList, $SanitisedFileFirstline)
+
             $output = Sanitising-Stripper $file $finalKeyList $SanitisedFileFirstline 
             return Save-File $file $output
-        }
+        } -ArgumentList @($file, $finalKeyList, $SanitisedFileFirstline)
     }
     watch-jobs
 
@@ -575,7 +571,7 @@ function Head-Stripper ($files) {
     # Clean up the jobs
     Get-Job | Remove-Job
 
-    return @($finalKeyList, $sanitisedFilenames)
+    return $finalKeyList, $sanitisedFilenames
 }
 
 ####################################################################################################
@@ -626,7 +622,7 @@ if (-not $configUsed -and -not $SelfContained) {
         exit -9
     }
 
-    $ans = Read-Host "Unable to find a strippyConfig.ini file to extend the list of indicators used to find sensitive data.
+    $ans = Read-Host "Unable to find a strippyConfig.json file to extend the list of indicators used to find sensitive data.
 Continuing now will only sanitise IP addresses and Windows UNC paths
 Would you like to continue with only these? 
 y/n> (y) "
@@ -667,10 +663,12 @@ y/n> (y) "
 #     if (-not $Silent) {$key}
 # }
 
-Write-Verbose "Attempting to Santise $File."
+Write-Verbose "Attempting to Santise $File"
 $File = $(Get-Item $File).FullName
 
-## Detect files
+## Build the list of files to work on
+$filesToProcess = @()
+
 # is it a directory?
 $isDir = $( get-item $File ).Mode -eq 'd-----'
 if ( $isDir ) {
@@ -682,7 +680,7 @@ if ( $isDir ) {
         $files = Get-ChildItem $File -Recurse -File
     } else {
         Write-Verbose "Normal mode means we only get the files at the top directory"
-        $files = Get-ChildItem $File
+        $files = Get-ChildItem $File -File
     }
 
     # Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
@@ -691,68 +689,70 @@ if ( $isDir ) {
         ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
         ( $(Get-MimeType -CheckFile $_.FullName) -match "image") -and -not
         ( $_.name -like '*.sanitised.*')
-    } | ForEach-Object {$_.FullName} 
+    } | ForEach-Object {$_.FullName}
 
-    # If we didn't find any files exit out
+    # If we didn't find any files clean up and exit
     if ( $files.Length -eq 0 ) {
-        Write-Information "There were no files to Sanitise in $File"
+        Write-Error "Could not find any appropriate files to sanitise in $File"
         Clean-Up
     }
 
-    # Start the head stripper with all the information we've just gathered about the task
-    $finalKeyList = Head-Stripper -isDir -Files $files 
-    # todo
-    foreach ( $f in $files ) {
-        $pre = $key.count
-        Write-Information "Gathering Keys from $f"
-        Find-Keys $f | Out-Null
-        Write-Verbose "Got $($key.count - $pre) keys from $f"
-    }
+    # Declare which files we'd like to process
+    $filesToProcess = $files
 
-    # Found the Keys, lets output the keylist
-    output-keylist
-
-    # Create and set output folders if needed
-    $OutputFolder = ''
-    if ($AlternateOutputFolder) {
-        New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
-        $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
-        Write-Information "Using Alternate Folder for output: $OutputFolder"
-    } else {
-        $p = $(Get-Item $File).Parent.FullName
-        $f = $(Get-Item $File).Name
-        $f = "$p\$f.sanitised"
-        
-        New-Item -ItemType directory -Path "$f" -Force | Out-Null
-        Write-Verbose "Made output folder: $f"
-        $OutputFolder = $(Get-Item "$f").FullName
-    }
-
-    # Sanitise using key list
-    foreach ($f in $files ) {
-        $relativePath = ($f -split ($File -replace '\\','\\'))[1]
-        $FilenameOUT = "$OutputFolder\$relativePath"
-
-        Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
-    }
 
 # We also want to support archives by treating them as folders we just have to unpack first
 } elseif ( $( get-item $File ).Extension -eq '.zip') {
     Write-Information "Archives are not supported yet"
+    # unpack
+    # run something similar to the folder code above
+    # add files that we want to process to $filestoprocess
+    # set a flag or similar to handle the repacking of the files into a .zip
 
 # It's not a folder, so go for it
 } else {
     Write-Verbose "$File is a file"
-    Write-Information "Gathering Keys from $File"
-    $file_content = Find-Keys $(get-item $File).FullName
-
-    # Output the keys prior to sanitisation to save all our work so far.
-    output-keylist
-
-    Sanitise $file_content $File $(Get-Item $File).FullName
+    
+    # Add the file to process to the list
+    $filesToProcess += $(get-item $File).FullName
 }
 
+
+## Start the processing of the files themselves 
+
+# give the head stripper all the information we've just gathered about the task
+$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess 
+
+# Found the Keys, lets output the keylist
+output-keylist $finalKeyList $listOfSanitisedFiles
+
+# Create and set output folders if needed
+$OutputFolder = ''
+if ($AlternateOutputFolder) {
+    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
+    $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
+    Write-Information "Using Alternate Folder for output: $OutputFolder"
+} else {
+    $p = $(Get-Item $File).Parent.FullName
+    $f = $(Get-Item $File).Name
+    $f = "$p\$f.sanitised"
+    
+    New-Item -ItemType directory -Path "$f" -Force | Out-Null
+    Write-Verbose "Made output folder: $f"
+    $OutputFolder = $(Get-Item "$f").FullName
+}
+
+# Sanitise using key list
+foreach ($f in $files ) {
+    $relativePath = ($f -split ($File -replace '\\','\\'))[1]
+    $FilenameOUT = "$OutputFolder\$relativePath"
+
+    Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
+}
+
+
+
 Write-Information "`n==========================================================================`nProcessed Keys:"
-if (-not $Silent) {$key}
+if (-not $Silent) {$finalKeyList}
 
 Clean-Up
