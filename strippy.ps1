@@ -791,12 +791,8 @@ if ( $isDir ) {
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess
 
-return $finalKeyList, $listOfSanitisedFiles
-
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
-
-
 
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
