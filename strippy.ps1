@@ -452,7 +452,9 @@ $JobFunctions = {
         $f = [IO.file]::ReadAllText( $fp )
         
         # Process file for tokens
+        $count = 1
         foreach ( $token in $flags ) {
+            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.Count)*100)
             $pattern = $token.Item1
             Write-Verbose "Using '$pattern' to find matches"
             $matches = [regex]::matches($f, $pattern)
@@ -481,6 +483,8 @@ $JobFunctions = {
                 }
             }
         }
+        # Set the bar to full for watch-jobs
+        Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
     
         Write-Verbose "Keys: $keys"
         return $keys
@@ -490,14 +494,15 @@ $JobFunctions = {
 # Takes a file and outputs it's the keys
 function Scout-Stripper ($files, $flags) {
     Write-Verbose "Started scout stripper"
-    # ForEach ($file in $files) {
-        $j = Start-Job -InitializationScript $JobFunctions -ScriptBlock {
+    ForEach ($file in $files) {
+        $name = "Finding Keys in $($(get-item $file).Name)"
+        Start-Job -Name $name -InitializationScript $JobFunctions -ScriptBlock {
             PARAM($file, $flags, $IgnoredStrings)
-            
+
             Find-Keys $file $flags $IgnoredStrings
-        } -ArgumentList @($files[0], $flags, $IgnoredStrings)
-        Write-Verbose "Made a background job for $files"
-    # }
+        } -ArgumentList @($file, $flags, $IgnoredStrings)
+        Write-Verbose "Made a background job for $file"
+    }
     watch-jobs
     Write-Verbose "Key finding jobs are finished"
 
@@ -505,7 +510,8 @@ function Scout-Stripper ($files, $flags) {
     $jobs = Get-Job -State Completed
     $keylists = @()
     ForEach ($job in $jobs) {
-        $keylists += Receive-Job -Keep -Job $job
+        $kl = Receive-Job -Keep -Job $job
+        $keylists += $kl
     }
     Write-Debug "retrieved the following from completed jobs:`n$($keylists | Out-String)"
     
