@@ -407,7 +407,7 @@ $JobFunctions = {
         return $possiblename
     }
 
-    function Save-File () {
+    function Save-File ( [string] $file, [string] $content ) {
         # From here, there this is all output stuff, not actual sanitisation.
         return "didn'tmakeafile"
         # if ( -not $InPlace ) {
@@ -431,9 +431,12 @@ $JobFunctions = {
     function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
         # Process file for items found using tokens in descending order of length. 
         # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
-        Write-Information "Sanitising file: $filename"
+        $finalKeyList = @($finalKeyList)
+        Write-Verbose "Sanitising file: $filename"
+        $count = 0
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
+            Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
             $content = $content -replace [regex]::Escape($key.value), $key.key
         }
     
@@ -500,8 +503,9 @@ function Scout-Stripper ($files, $flags) {
             PARAM($file, $flags, $IgnoredStrings)
 
             Find-Keys $file $flags $IgnoredStrings
-        } -ArgumentList @($file, $flags, $IgnoredStrings)
-        Write-Verbose "Made a background job for $file"
+            Write-Verbose "Found all the keys in $file"
+        } -ArgumentList $file,$flags,$IgnoredStrings | Out-Null
+        Write-Verbose "Made a background job for scouting of $file"
     }
     watch-jobs
     Write-Verbose "Key finding jobs are finished"
@@ -516,7 +520,7 @@ function Scout-Stripper ($files, $flags) {
     Write-Debug "retrieved the following from completed jobs:`n$($keylists | Out-String)"
     
     # Clean up the jobs
-    Get-Job | Remove-Job
+    Get-Job | Remove-Job | Out-Null
     Write-Verbose "cleaned up scouting jobs"
 
     return $keylists
@@ -530,17 +534,32 @@ function Sanitising-Stripper ($finalKeyList, $files) {
             PARAM($file, $finalKeyList, $firstline)
 
             $content = [IO.file]::ReadAllText($file)
+            Write-Verbose "Loaded in content of $file"
+
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
-            Save-File $file $sanitisedOutput
-        } -ArgumentList @($file, $finalKeyList, $SanitisedFileFirstline)
+            write-verbose "Sanitised content of $file"
+
+            $exportedFileName = Save-File $file $sanitisedOutput
+            Write-Verbose "Exported $file to $exportedFileName"
+
+            $exportedFileName
+        } -ArgumentList $file,$finalKeyList,$SanitisedFileFirstline | Out-Null
+        Write-Verbose "Made a background job for sanitising of $file"
     }
     watch-jobs
+    write-verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
-    $sanitisedFilenames = Get-Job -State Completed | Receive-Job
+    $jobs = Get-Job -State Completed
+    $sanitisedFilenames = @()
+    ForEach ($job in $jobs) {
+        $fn = Receive-Job -Keep -Job $job
+        $sanitisedFilenames += $fn
+    }
+    Write-Verbose "Sanitised file names are:`n$sanitisedFilenames"
 
     # Clean up the jobs
-    Get-Job | Remove-Job
+    Get-Job | Remove-Job | Out-Null
     
     return $sanitisedFilenames
 }
@@ -770,7 +789,9 @@ if ( $isDir ) {
 ## Start the processing of the files themselves 
 
 # give the head stripper all the information we've just gathered about the task
-$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess 
+$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess
+
+return $finalKeyList, $listOfSanitisedFiles
 
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
