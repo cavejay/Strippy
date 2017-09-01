@@ -68,13 +68,14 @@
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# Fork Processes and do each file separately, combine keylists and sanitise all. read http://www.get-blog.com/?p=22 use start-job
+# Fork Processes and do each file separately, combine keylists and sanitise all. read http://www.get-blog.com/?p=22 use start-job - Doing now
 # Nicer gui for above showing how far through each process/file is.
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
-# Update the config file to use a nicer ini alternative.
+# Update the config file to use a nicer ini alternative. (Branch for this now)
 # More intellient capitalisation resolution.
 # Re-write? :/ 
 # catch all for empty tokens
+# Move from jobs to runspaces?
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
@@ -530,8 +531,10 @@ function Sanitising-Stripper ($finalKeyList, $files) {
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
+
+
         Start-Job -InitializationScript $JobFunctions -ScriptBlock {
-            PARAM($file, $finalKeyList, $firstline)
+            PARAM($file, $finalKeyList, $firstline, $fileout)
 
             $content = [IO.file]::ReadAllText($file)
             Write-Verbose "Loaded in content of $file"
