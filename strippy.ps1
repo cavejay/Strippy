@@ -452,6 +452,7 @@ $JobFunctions = {
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
             $content = $content -replace [regex]::Escape($key.value), $key.key
         }
+        Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete 100
     
         # Add first line to show sanitation
         $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
@@ -505,7 +506,6 @@ $JobFunctions = {
         return $keys
     }
 }
-. $JobFunctions
 
 # Takes a file and outputs it's the keys
 function Scout-Stripper ($files, $flags) {
@@ -544,7 +544,8 @@ function Sanitising-Stripper ($finalKeyList, $files) {
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
-        Start-Job -InitializationScript $JobFunctions -ScriptBlock {
+        $name = "Sanitising $($(get-item $file).Name)"
+        Start-Job -Name $name -InitializationScript $JobFunctions -ScriptBlock {
             PARAM($file, $finalKeyList, $firstline, $vPref)
             $VerbosePreference = $vPref
             $DebugPreference = $vPref
@@ -581,20 +582,26 @@ function Sanitising-Stripper ($finalKeyList, $files) {
 }
 
 function Merging-Stripper ([Array] $keylists) {
+    . $JobFunctions # Make the gen-key-name function available
+
     # If we only proc'd one file then return that
     if ($keylists.Count -eq 1) {
         return $keylists[0]
     }
     
     $output = @{}
+    $totalKeys = $keylists | ForEach-Object { $result = 0 } { $result += $_.Count } { $result }
+    $currentKey = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
+            Write-Progress -Activity "Merging Keylists" -PercentComplete ($currentKey++/$totalKeys)*100
             if ($output.values -notcontains $keylist.$Key) {
                 $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
                 $output.$newname = $keylist.$key
             }
         }
     }
+    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -Completed
 
     return $output
 }
@@ -610,7 +617,7 @@ function watch-jobs () {
                 
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
-                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
                 }
                 
                 ## If this child is complete then stop writing progress
@@ -623,8 +630,14 @@ function watch-jobs () {
         }
 
         ## Setting for loop processing speed
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 200
     }
+
+    ForEach ($Job in Get-Job) {
+        ForEach ($Child in $Job.ChildJobs) {
+            Write-Progress -Activity $Job.Name -ID $Job.ID  -Complete
+        }
+    }       
 }
 
 function Head-Stripper ($files) {
