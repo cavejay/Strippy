@@ -141,8 +141,9 @@ if ($Silent) { $InformationPreference = "ContinueSilently" } else { $Information
 
 if ( $Verbose -and -not $Silent) {
     $oldVerbosityPref = $VerbosePreference
-    $VerbosePreference = "Continue"
-    $DebugPreference = "Continue"
+    $oldDebugPref = $DebugPreference
+    $VerbosePreference = 'Continue'
+    $DebugPreference = 'Continue'
 }
 
 # Check if we're _just_ creating a default config file
@@ -216,6 +217,18 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
+function eval-config-string ([string] $str) {
+    $out = "$str"
+    if (($str[0..4] -join '') -eq "eval:") {
+        Write-Verbose "config string |$str| needs to be eval'd"
+        $out = $ExecutionContext.InvokeCommand.ExpandString(($str -split "eval:")[1])
+        Write-Verbose "Eval'd to: $out"
+    } else {
+        Write-Verbose "Config string |$str| was not eval'd"
+    }
+    return $out
+}
+
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     $kf = "$PWD\KeyList.txt"
     
@@ -229,11 +242,11 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
         }
 
         Write-Information "`nExporting KeyList to $kf"
-        $KeyOutfile = $KeyListFirstline + $( $finalKeyList | Out-String )
+        $KeyOutfile = (eval-config-string $KeyListFirstline) + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
-        Write-Information "No Keys where found to show or output. There will be no key file"
+        Write-Information "No Keys were found to show or output. There will be no key file"
     }
 }
 
@@ -243,6 +256,7 @@ function Clean-Up () {
 
     ## Cleanup
     $VerbosePreference = $oldVerbosityPref
+    $DebugPreference = $oldDebugPref
     $InformationPreference = $oldInfoPref
     Set-Location $PWD
     exit
@@ -408,33 +422,33 @@ $JobFunctions = {
         return $possiblename
     }
 
-    function Save-File ( [string] $file, [string] $content ) {
-        # From here, there this is all output stuff, not actual sanitisation.
-        return "didn'tmakeafile"
+    function Save-File ( [string] $file, [string] $content ) {        
         # if ( -not $InPlace ) {
             # Create output file's name
-            $filenameParts = $filenameOUT -split '\.'
-            $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
+            $filenameParts = $file -split '\.'
+            $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
             $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
         # }
-    
-        # Add file to $listOfSanitisedFiles
-        $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
     
         # Save file as .santised.extension
         if (test-path $filenameOUT) {} else {
             New-Item -Force $filenameOUT | Out-Null
         }
         $content | Out-File -force -Encoding ASCII $filenameOUT
+        
+        # Return name of sanitised file for use by the keylist
+        return "$( $(Get-Date).toString() ) - $filenameOUT"
     }
     
     ## Sanitises a file and stores sanitised data in a key
     function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
         # Process file for items found using tokens in descending order of length. 
         # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
-        $finalKeyList = @($finalKeyList)
+        # $finalKeyList = @($finalKeyList)
         Write-Verbose "Sanitising file: $filename"
         $count = 0
+        Write-Verbose "This is a thing:"
+        Write-Verbose "$( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )"
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
@@ -442,10 +456,9 @@ $JobFunctions = {
         }
     
         # Add first line to show sanitation
-        $content = $SanitisedFileFirstline + $content
+        $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
         return $content
     }
-
     
     ## Build the key table for all the files
     function Find-Keys ( [string] $fp, $flags, $IgnoredStrings ) {
@@ -501,11 +514,12 @@ function Scout-Stripper ($files, $flags) {
     ForEach ($file in $files) {
         $name = "Finding Keys in $($(get-item $file).Name)"
         Start-Job -Name $name -InitializationScript $JobFunctions -ScriptBlock {
-            PARAM($file, $flags, $IgnoredStrings)
+            PARAM($file, $flags, $IgnoredStrings, $vPref)
+            $VerbosePreference = $vPref
 
             Find-Keys $file $flags $IgnoredStrings
             Write-Verbose "Found all the keys in $file"
-        } -ArgumentList $file,$flags,$IgnoredStrings | Out-Null
+        } -ArgumentList $file,$flags,$IgnoredStrings,$VerbosePreference | Out-Null
         Write-Verbose "Made a background job for scouting of $file"
     }
     watch-jobs
@@ -531,10 +545,10 @@ function Sanitising-Stripper ($finalKeyList, $files) {
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
-
-
         Start-Job -InitializationScript $JobFunctions -ScriptBlock {
-            PARAM($file, $finalKeyList, $firstline, $fileout)
+            PARAM($file, $finalKeyList, $firstline, $vPref)
+            $VerbosePreference = $vPref
+            $DebugPreference = $vPref
 
             $content = [IO.file]::ReadAllText($file)
             Write-Verbose "Loaded in content of $file"
@@ -546,7 +560,7 @@ function Sanitising-Stripper ($finalKeyList, $files) {
             Write-Verbose "Exported $file to $exportedFileName"
 
             $exportedFileName
-        } -ArgumentList $file,$finalKeyList,$SanitisedFileFirstline | Out-Null
+        } -ArgumentList $file,$finalKeyList,$SanitisedFileFirstline,$VerbosePreference | Out-Null
         Write-Verbose "Made a background job for sanitising of $file"
     }
     watch-jobs
@@ -568,8 +582,11 @@ function Sanitising-Stripper ($finalKeyList, $files) {
 }
 
 function Merging-Stripper ($keylists) {
-    # This logic needs to be written
-    return $keylists[0] #return the first one for now #yolo
+    if ($keylists -is [System.Array]) {
+        return $keylists[0]
+    } else {
+        return $keylists
+    }
 }
 
 function watch-jobs () {
