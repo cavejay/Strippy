@@ -447,8 +447,6 @@ $JobFunctions = {
         # $finalKeyList = @($finalKeyList)
         Write-Verbose "Sanitising file: $filename"
         $count = 0
-        Write-Verbose "This is a thing:"
-        Write-Verbose "$( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )"
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
@@ -507,6 +505,7 @@ $JobFunctions = {
         return $keys
     }
 }
+. $JobFunctions
 
 # Takes a file and outputs it's the keys
 function Scout-Stripper ($files, $flags) {
@@ -581,12 +580,23 @@ function Sanitising-Stripper ($finalKeyList, $files) {
     return $sanitisedFilenames
 }
 
-function Merging-Stripper ($keylists) {
-    if ($keylists -is [System.Array]) {
+function Merging-Stripper ([Array] $keylists) {
+    # If we only proc'd one file then return that
+    if ($keylists.Count -eq 1) {
         return $keylists[0]
-    } else {
-        return $keylists
     }
+    
+    $output = @{}
+    ForEach ($keylist in $keylists) {
+        ForEach ($Key in $keylist.Keys) {
+            if ($output.values -notcontains $keylist.$Key) {
+                $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
+                $output.$newname = $keylist.$key
+            }
+        }
+    }
+
+    return $output
 }
 
 function watch-jobs () {
