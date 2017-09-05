@@ -58,27 +58,24 @@
 #>
 
 # Todo
-# write tests. Some things aren't working and we can't check this.
 # Dealing with selections of files a la "server.*.log" or similar
 # Make -Silent print output to a file? 
-# Get logs from support site
-# Have option diagnotics file or similar that shows how many times each rule was hit
+# Have option for diagnotics file or similar that shows how many times each rule was hit
 # Print/Sanitising sometimes breaks?
-# Keys found at the end of lines contain a '...'
+# Keys found at the end of lines contain a '...' - not all the time though?
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# Fork Processes and do each file separately, combine keylists and sanitise all. read http://www.get-blog.com/?p=22 use start-job - Doing now
 # Nicer gui for above showing how far through each process/file is.
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 # Update the config file to use a nicer ini alternative. (Branch for this now)
 # More intellient capitalisation resolution.
-# Re-write? :/ 
 # catch all for empty tokens
 # Move from jobs to runspaces?
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
+    - use powershell options for directory and file edits
 #>
 
 [CmdletBinding()]
@@ -204,7 +201,7 @@ if ( $MakeConfig ) {
 
 # Usage
 if ( $File -eq "" ) {
-    Get-Help "$( Get-Location )\$( $MyInvocation.MyCommand.Name )"
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
     exit 0
 }
 
@@ -230,7 +227,7 @@ function eval-config-string ([string] $str) {
 }
 
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
-    $kf = "$PWD\KeyList.txt"
+    $kf = join-path $PWD "KeyList.txt"
     
     # We have Keys?
     if ( $finalKeyList.Keys.Count -ne 0) {
@@ -260,20 +257,6 @@ function Clean-Up () {
     $InformationPreference = $oldInfoPref
     Set-Location $PWD
     exit
-}
-
-# Print only when not printing verbose comments
-function write-when-normal {
-    [cmdletbinding()]
-    param([Switch] $NoNewline, [String] $str)
-
-    if ($VerbosePreference -ne "Continue" -and -not $Silent) {
-        if ($NoNewline) {
-            Write-Host -NoNewline $str
-        } else {
-            Write-Host $str
-        }
-    } 
 }
 
 ## Process Config file 
@@ -499,7 +482,7 @@ $JobFunctions = {
                 }
             }
         }
-        # Set the bar to full for watch-jobs
+        # Set the bar to full for manage-job
         Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
     
         Write-Verbose "Keys: $keys"
@@ -521,7 +504,7 @@ function Scout-Stripper ($files, $flags) {
         } -ArgumentList $file,$flags,$IgnoredStrings,$VerbosePreference | Out-Null
         Write-Verbose "Made a background job for scouting of $file"
     }
-    watch-jobs
+    manage-job
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -563,7 +546,7 @@ function Sanitising-Stripper ($finalKeyList, $files) {
         } -ArgumentList $file,$finalKeyList,$SanitisedFileFirstline,$VerbosePreference | Out-Null
         Write-Verbose "Made a background job for sanitising of $file"
     }
-    watch-jobs
+    manage-job
     write-verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
@@ -606,7 +589,7 @@ function Merging-Stripper ([Array] $keylists) {
     return $output
 }
 
-function watch-jobs () {
+function manage-job () {
     # Report the progress While there are still jobs running
     While ($(Get-Job -State "Running").count -gt 0) {
         # For each job started and each child of those jobs
@@ -756,6 +739,7 @@ $File = $(Get-Item $File).FullName
 
 ## Build the list of files to work on
 $filesToProcess = @()
+$OutputFolder = $File | Split-Path # Default for a file
 
 # is it a directory?
 $isDir = $( get-item $File ).Mode -eq 'd-----'
@@ -788,6 +772,10 @@ if ( $isDir ) {
     # Declare which files we'd like to process
     $filesToProcess = $files
 
+    # Calc the output folder
+
+    $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
+    $OutputFolder = $(Get-Item "$f").FullName
 
 # We also want to support archives by treating them as folders we just have to unpack first
 } elseif ( $( get-item $File ).Extension -eq '.zip') {
@@ -805,31 +793,12 @@ if ( $isDir ) {
     $filesToProcess += $(get-item $File).FullName
 }
 
-# # Create and set output folders if needed
-# $OutputFolder = ''
-# if ($AlternateOutputFolder) {
-#     New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
-#     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
-#     Write-Information "Using Alternate Folder for output: $OutputFolder"
-# } else {
-#     $p = $(Get-Item $File).Parent.FullName
-#     $f = $(Get-Item $File).Name
-#     $f = "$p\$f.sanitised"
-    
-#     New-Item -ItemType directory -Path "$f" -Force | Out-Null
-#     Write-Verbose "Made output folder: $f"
-#     $OutputFolder = $(Get-Item "$f").FullName
-# }
-
-# # Sanitise using key list
-# foreach ($f in $files ) {
-#     $relativePath = ($f -split ($File -replace '\\','\\'))[1]
-#     $FilenameOUT = "$OutputFolder\$relativePath"
-
-#     Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
-# }
-
-## Start the processing of the files themselves 
+# Redirect the output folder if necessary
+if ($AlternateOutputFolder) {
+    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
+    $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
+    Write-Information "Using Alternate Folder for output: $OutputFolder"
+}
 
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess
