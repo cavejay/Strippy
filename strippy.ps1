@@ -493,18 +493,20 @@ $JobFunctions = {
 # Takes a file and outputs it's the keys
 function Scout-Stripper ($files, $flags) {
     Write-Verbose "Started scout stripper"
+    $q = New-Object System.Collections.Queue
     ForEach ($file in $files) {
         $name = "Finding Keys in $($(get-item $file).Name)"
-        Start-Job -Name $name -InitializationScript $JobFunctions -ScriptBlock {
+        $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $vPref)
             $VerbosePreference = $vPref
 
             Find-Keys $file $flags $IgnoredStrings
             Write-Verbose "Found all the keys in $file"
-        } -ArgumentList $file,$flags,$IgnoredStrings,$VerbosePreference | Out-Null
-        Write-Verbose "Made a background job for scouting of $file"
+        } 
+        $ArgumentList = $file,$flags,$IgnoredStrings,$VerbosePreference
+        $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    manage-job
+    Manage-Job $q 5
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -524,11 +526,13 @@ function Scout-Stripper ($files, $flags) {
 }
 
 function Sanitising-Stripper ($finalKeyList, $files) {
+    Write-Verbose "Started Sanitising Stripper"
+    $q = New-Object System.Collections.Queue
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
         $name = "Sanitising $($(get-item $file).Name)"
-        Start-Job -Name $name -InitializationScript $JobFunctions -ScriptBlock {
+        $ScriptBlock = {
             PARAM($file, $finalKeyList, $firstline, $vPref)
             $VerbosePreference = $vPref
             $DebugPreference = $vPref
@@ -543,10 +547,11 @@ function Sanitising-Stripper ($finalKeyList, $files) {
             Write-Verbose "Exported $file to $exportedFileName"
 
             $exportedFileName
-        } -ArgumentList $file,$finalKeyList,$SanitisedFileFirstline,$VerbosePreference | Out-Null
-        Write-Verbose "Made a background job for sanitising of $file"
+        }
+        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$VerbosePreference
+        $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    manage-job
+    Manage-Job $q 5
     write-verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
@@ -577,7 +582,7 @@ function Merging-Stripper ([Array] $keylists) {
     $currentKey = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
-            Write-Progress -Activity "Merging Keylists" -PercentComplete ($currentKey++/$totalKeys)*100
+            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100)
             if ($output.values -notcontains $keylist.$Key) {
                 $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
                 $output.$newname = $keylist.$key
@@ -589,9 +594,23 @@ function Merging-Stripper ([Array] $keylists) {
     return $output
 }
 
-function manage-job () {
-    # Report the progress While there are still jobs running
-    While ($(Get-Job -State "Running").count -gt 0) {
+function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
+    Write-Verbose "Clearing all background jobs (again in-case)"
+    Get-Job | Stop-Job
+    Get-job | Remove-Job
+
+    # While there are still jobs to deploy or there are jobs still running
+    While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
+        $JobsRunning = $(Get-Job -State 'Running').count
+        
+        if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
+            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
+                if ($jobQ.Count -eq 0) {return}
+                $j = $jobQ.Dequeue()
+                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3]
+            }
+        }
+
         # For each job started and each child of those jobs
         ForEach ($Job in Get-Job) {
             ForEach ($Child in $Job.ChildJobs){
@@ -773,8 +792,8 @@ if ( $isDir ) {
     $filesToProcess = $files
 
     # Calc the output folder
-
     $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
+    if ($AlternateOutputFolder) {} else {New-Item -ItemType directory -Path $f -Force | Out-Null} # Make the new dir
     $OutputFolder = $(Get-Item "$f").FullName
 
 # We also want to support archives by treating them as folders we just have to unpack first
@@ -795,7 +814,7 @@ if ( $isDir ) {
 
 # Redirect the output folder if necessary
 if ($AlternateOutputFolder) {
-    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
+    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir
     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
     Write-Information "Using Alternate Folder for output: $OutputFolder"
 }
