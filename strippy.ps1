@@ -110,7 +110,7 @@ param (
 $SelfContained = $false
 
 ## Variables: (Over written by any config file)
-$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications')
+$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
 $SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
 $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 
@@ -405,12 +405,16 @@ $JobFunctions = {
         return $possiblename
     }
 
-    function Save-File ( [string] $file, [string] $content ) {        
+    function Save-File ( [string] $file, [string] $content, [string] $OutputFolder ) {        
         # if ( -not $InPlace ) {
             # Create output file's name
-            $filenameParts = $file -split '\.'
-            $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
-            $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+            $name = Split-Path $file -Leaf -Resolve
+            $filenameParts = $name -split '\.'
+            $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
+            $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+            $filenameOUT = Join-Path $OutputFolder $sanitisedName
+
+            # todo this won't work for recursive folders
         # }
     
         # Save file as .santised.extension
@@ -435,7 +439,7 @@ $JobFunctions = {
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
             $content = $content -replace [regex]::Escape($key.value), $key.key
         }
-        Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete 100
+        Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
         # Add first line to show sanitation
         $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
@@ -525,7 +529,7 @@ function Scout-Stripper ($files, $flags) {
     return $keylists
 }
 
-function Sanitising-Stripper ($finalKeyList, $files) {
+function Sanitising-Stripper ($finalKeyList, $files, $OutputFolder) {
     Write-Verbose "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
 
@@ -533,7 +537,7 @@ function Sanitising-Stripper ($finalKeyList, $files) {
     ForEach ($file in $files) {
         $name = "Sanitising $($(get-item $file).Name)"
         $ScriptBlock = {
-            PARAM($file, $finalKeyList, $firstline, $vPref)
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $vPref)
             $VerbosePreference = $vPref
             $DebugPreference = $vPref
 
@@ -543,12 +547,12 @@ function Sanitising-Stripper ($finalKeyList, $files) {
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
             write-verbose "Sanitised content of $file"
 
-            $exportedFileName = Save-File $file $sanitisedOutput
+            $exportedFileName = Save-File $file $sanitisedOutput $OutputFolder
             Write-Verbose "Exported $file to $exportedFileName"
 
             $exportedFileName
         }
-        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$VerbosePreference
+        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q 5
@@ -632,7 +636,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
         }
 
         ## Setting for loop processing speed
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 100
     }
 
     ForEach ($Job in Get-Job) {
@@ -642,7 +646,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
     }       
 }
 
-function Head-Stripper ($files) {
+function Head-Stripper ($files, $OutputFolder) {
     # There shouldn't be any other background jobs, but kill them anyway.
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
@@ -658,7 +662,7 @@ function Head-Stripper ($files) {
     Write-Verbose "Finished merging keylists"
 
     # Sanitise the files
-    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder
     Write-verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
@@ -820,7 +824,7 @@ if ($AlternateOutputFolder) {
 }
 
 # give the head stripper all the information we've just gathered about the task
-$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess
+$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $OutputFolder
 
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
