@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 170710
+    Version: 2.170907
     Compatability: Powershell 3+
 
 .LINK
@@ -58,50 +58,50 @@
 #>
 
 # Todo
-# write tests. Some things aren't working and we can't check this.
 # Dealing with selections of files a la "server.*.log" or similar
 # Make -Silent print output to a file? 
-# Get logs from support site
-# Have option diagnotics file or similar that shows how many times each rule was hit
+# Have option for diagnotics file or similar that shows how many times each rule was hit
 # Print/Sanitising sometimes breaks?
-# Keys found at the end of lines contain a '...'
+# Keys found at the end of lines contain a '...' - not all the time though?
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# Fork Processes and do each file separately, combine keylists and sanitise all. read http://www.get-blog.com/?p=22 use start-job
 # Nicer gui for above showing how far through each process/file is.
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
-# Update the config file to use a nicer ini alternative.
+# Update the config file to use a nicer ini alternative. (Branch for this now)
 # More intellient capitalisation resolution.
-# Re-write? :/ 
 # catch all for empty tokens
+# Move from jobs to runspaces?
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
+    - use powershell options for directory and file edits
 #>
 
 [CmdletBinding()]
 param (
     # The File or Folder you wish to sanitise
-    [string] $File, 
+    [String] $File, 
      # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
-    [switch] $Silent,
+    [Switch] $Silent,
     # Looks for log files throughout a directory tree rather than only in the first level
     [Switch] $Recurse = $false, 
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    [switch] $InPlace, 
+    [switch] $InPlace = $false,
     # Creates a barebones strippyConfig.json file for the user to fill edit
-    [switch] $MakeConfig, 
+    [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeyListOutput
-    [string] $keyout, 
+    [String] $keyout, 
     # Specifies an alternate name and path for the keylist file
-    [string] $AlternateKeyListOutput = $keyout,
+    [String] $AlternateKeyListOutput = $keyout,
     # A shortcut for -AlternateOutputFolder 
     [String] $out, 
     # Specifies an alternate path or file for the sanitised file
     [String] $AlternateOutputFolder = $out, 
     # Specifies a previously generated keylist file to import keys from for this sanitisation
     [String] $KeyFile, 
+    # Archive the folder or file after sanitising it
+    # [switch] $zip, 
     # Specifies a config file to use rather than the default local file or no file at all.
     [String] $Config
 )
@@ -112,7 +112,7 @@ param (
 $SelfContained = $false
 
 ## Variables: (Over written by any config file)
-$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications')
+$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
 $SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
 $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 
@@ -121,12 +121,6 @@ $KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
 
 # General config 
 $PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
-
-# The list of keys we find
-$key = @{}
-
-# List to export with Keys
-$listOfSanitisedFiles = @()
 
 # Flags
 # usernames, hostnames, ip addresses ## DSN is different!
@@ -146,8 +140,9 @@ if ($Silent) { $InformationPreference = "ContinueSilently" } else { $Information
 
 if ( $Verbose -and -not $Silent) {
     $oldVerbosityPref = $VerbosePreference
-    $VerbosePreference = "Continue"
-    $DebugPreference = "Continue"
+    $oldDebugPref = $DebugPreference
+    $VerbosePreference = 'Continue'
+    $DebugPreference = 'Continue'
 }
 
 # Check if we're _just_ creating a default config file
@@ -208,7 +203,7 @@ if ( $MakeConfig ) {
 
 # Usage
 if ( $File -eq "" ) {
-    Get-Help "$( Get-Location )\$( $MyInvocation.MyCommand.Name )"
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
     exit 0
 }
 
@@ -221,11 +216,23 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
-function make-keylist () {
-    $kf = "$PWD\KeyList.txt"
+function eval-config-string ([string] $str) {
+    $out = "$str"
+    if (($str[0..4] -join '') -eq "eval:") {
+        Write-Verbose "config string |$str| needs to be eval'd"
+        $out = $ExecutionContext.InvokeCommand.ExpandString(($str -split "eval:")[1])
+        Write-Verbose "Eval'd to: $out"
+    } else {
+        Write-Verbose "Config string |$str| was not eval'd"
+    }
+    return $out
+}
+
+function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
+    $kf = join-path $PWD "KeyList.txt"
     
     # We have Keys?
-    if ( $key.Keys.Count -ne 0) {
+    if ( $finalKeyList.Keys.Count -ne 0) {
         # Do we need to put them somewhere else?
         if ( $AlternateKeyListOutput ) {
             Set-Location $PWD
@@ -234,20 +241,21 @@ function make-keylist () {
         }
 
         Write-Information "`nExporting KeyList to $kf"
-        $KeyOutfile = $KeyListFirstline + $( $key | Out-String )
+        $KeyOutfile = (eval-config-string $KeyListFirstline) + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
-        Write-Information "No Keys where found to show or output. There will be no key file"
+        Write-Information "No Keys were found to show or output. There will be no key file"
     }
 }
 
 # This should be run before the script is closed
 function Clean-Up () {
-    make-keylist # Make the keylist just incase.
+    # output-keylist # This should no longer be needed.
 
     ## Cleanup
     $VerbosePreference = $oldVerbosityPref
+    $DebugPreference = $oldDebugPref
     $InformationPreference = $oldInfoPref
     Set-Location $PWD
     exit
@@ -288,7 +296,7 @@ function proc-config-file ( $cf ) {
     Write-Verbose "Applying Config to script"
     # Split up and assign all the pieces to their variables
     $script:KeyListFirstline = $c.KeyListFirstLine
-    $script:KeyFile = $c.KeyFile
+    $script:KeyFile = @($script:Keyfile, $c.KeyFile)[[Boolean] $c.KeyFile]
     $script:SanitisedFileFirstline = $c.SanitisedFileFirstline
     $script:IgnoredStrings = $c.IgnoredStrings
     foreach ($indicator in $c.indicators) {
@@ -298,8 +306,9 @@ function proc-config-file ( $cf ) {
     }
 }
 
-## Process a KeyFile
-function proc-keyfile ( $kf ) {
+# Process a KeyFile
+function proc-keyfile ( [string] $kf ) {
+    $importedKeylist = @{}
     $kfLines = [IO.file]::ReadAllLines($kf)
 
     # Find length of keylist
@@ -307,7 +316,6 @@ function proc-keyfile ( $kf ) {
     $endOfKeyList = $startOfFileList - 4
 
     if ( $startOfFileList -eq 0 ) {
-        write-when-normal '' 
         Write-Error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
         exit -1
     }
@@ -316,12 +324,10 @@ function proc-keyfile ( $kf ) {
     foreach ($d in $dataLines) {
         $d = $d -replace '\s+', ' ' -split "\s"
         if ( $d.Length -ne 3) {
-            write-when-normal '' 
             Write-Error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
             exit -1
         }
 
-        write-when-normal -NoNewline '.'
         Write-Verbose "Found Key: $($d[0]) & Value: $($d[1])"
         $k = $d[0]; $v = $d[1]
 
@@ -331,35 +337,19 @@ function proc-keyfile ( $kf ) {
             exit -1
         }
 
-        $key[$k] = $v
+        $importedKeylist[$k] = $v
     }
-    write-when-normal '.'
 
     foreach ($d in $kfLines[$startOfFileList..$( $kfLines.Length - 2 )]) {
         $script:listOfSanitisedFiles += $d;
     }
-}
 
-# Generates a keyname without doubles
-$nameCounts = @{}
-function Gen-Key-Name ( $token ) {
-    $possiblename = ''
-    do {
-        Write-Debug $token.Item2
-        if ( -not $nameCounts.ContainsKey($token.Item2) ) {
-            $nameCounts[$token.Item2] = 0
-        }
-
-        $nameCounts[$token.Item2]++
-        $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
-        Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $key[$possiblename] )'"
-    } while ( $key[$possiblename] -ne $null )
-    return $possiblename
+    return $importedKeylist
 }
 
 function Get-FileEncoding {
-# This function is only included here to preserve this as a single file.
-# Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
+    # This function is only included here to preserve this as a single file.
+    # Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
     [CmdletBinding()]
     param (
         [Alias("PSPath")]
@@ -374,7 +364,7 @@ function Get-FileEncoding {
         $encoding_found = $false
         foreach ($encoding in [System.Text.Encoding]::GetEncodings().GetEncoding()) {
             $preamble = $encoding.GetPreamble()
-            if ($preamble) {
+            if ($preamble -and $bom) {
                 foreach ($i in 0..$preamble.Length) {
                     if ($preamble[$i] -ne $bom[$i]) {
                         break
@@ -410,94 +400,308 @@ function Get-MimeType() {
     end { return $mime_type } 
 }
 
-## Sanitises a file and stores sanitised data in a key
-function Sanitise ( [string] $content, [string] $filenameIN, [string] $filenameOUT) {
-    # Process file for items found using tokens in descending order of length. 
-    # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
-    Write-Information "Sanitising file: $filenameIN"
-    foreach ( $k in $( $key.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
-        Write-Debug "   Substituting $($k.value) -> $($k.key)"
-        write-when-normal -NoNewline '.'
-        $content = $content -replace [regex]::Escape($k.value), $k.key
-    }
-    write-when-normal ''
-
-    # Add first line to show sanitation
-    $content = $SanitisedFileFirstline + $content
-
-    if ( -not $InPlace ) {
-        # Create output file's name
-        $filenameParts = $filenameOUT -split '\.'
-        $filenameOUT = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.' 
-        $filenameOUT += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+# Group all the functions that we'll need to run in Jobs as a scriptblock
+$JobFunctions = {
+    function Get-PathTail ($d1, $d2) {
+        [String]::Join('',$($d2[$($d1.length)..$($d2.length-1)],$d1[$($d2.length)..$($d1.length-1)])[$d1 -gt $d2])
     }
 
-    # Add file to $listOfSanitisedFiles
-    $Script:listOfSanitisedFiles += "$( $(Get-Date).toString() ) - $filenameOUT";
-
-    # Save file as .santised.extension
-    if (test-path $filenameOUT) {} else {
-        New-Item -Force $filenameOUT | Out-Null
-    }
-    $content | Out-File -force -Encoding ASCII $filenameOUT
-}
-
-## Build the key table for all the files
-function Find-Keys ( [string] $fp ) {
-    Write-Verbose "Finding Keys in $fp"
-
-    # Open file
-    $f = [IO.file]::ReadAllText( $fp )
+    # Generates a keyname without doubles
+    $nameCounts = @{}
+    function Gen-Key-Name ( $keys, $token ) {
+        $possiblename = ''
+        do {
+            Write-Debug $token.Item2
+            if ( -not $nameCounts.ContainsKey($token.Item2) ) {
+                $nameCounts[$token.Item2] = 0
+            }
     
-    # Process file for tokens
-    foreach ( $token in $flags ) {
-        $pattern = $token.Item1
-        Write-Verbose "Using '$pattern' to find matches"
-        $matches = [regex]::matches($f, $pattern)
+            $nameCounts[$token.Item2]++
+            $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
+            Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $keys[$possiblename] )'"
+        } while ( $keys[$possiblename] -ne $null )
+        return $possiblename
+    }
+
+    function Save-File ( [string] $file, [string] $content, [string] $rootFolder, [string] $OutputFolder, [bool] $inPlace ) { 
+        $filenameOUT = ''
+        if ( -not $InPlace ) {
+            # Create output file's name
+            $name = Split-Path $file -Leaf -Resolve
+            $filenameParts = $name -split '\.'
+            $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
+            $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+            if ($rootFolder) {
+                Write-verbose "Sanitising a folder, foldername is $rootFolder"
+                $locality = Get-PathTail $(Split-Path $file) $rootFolder
+                Write-Verbose "File is $locality from the root folder"
+                $filenameOUT = Join-Path $OutputFolder $locality 
+                $filenameOut = Join-Path $filenameOUT $sanitisedName
+            } else {
+                $filenameOUT = Join-Path $OutputFolder $sanitisedName
+            }
+        } else {
+            Write-Verbose "Overwriting original file at $file"
+            $filenameOUT = $file
+        }
+    
+        # Save file as .santised.extension
+        if (test-path $filenameOUT) {} else {
+            New-Item -Force $filenameOUT | Out-Null
+        }
+        $content | Out-File -force -Encoding ASCII $filenameOUT
+        Write-Verbose "Written out to $filenameOUT"
         
-        # Grab the value for each match, if it doesn't have a key make one
-        $c1 = $c2 = 0; $o = ' '; $t = $c = '.'
-        foreach ( $m in $matches ) {
-            # Pretty print for normal output
-            $c1++
-            if ($c1 % 10 -eq 0) {
-                $c2++
-                write-when-normal -NoNewline $t
-                if ($c2 % 40*5 -eq 0) {
-                    if ($t -eq $o) {$t = $c} else {$t = $o}
-                    write-when-normal -NoNewline "`r$t"
+        # Return name of sanitised file for use by the keylist
+        return "$( $(Get-Date).toString() ) - $filenameOUT"
+    }
+    
+    ## Sanitises a file and stores sanitised data in a key
+    function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
+        Write-Verbose "Sanitising file: $filename"
+        $count = 0
+        # Process file for items found using tokens in descending order of length. 
+        # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
+        foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
+            Write-Debug "   Substituting $($key.value) -> $($key.key)"
+            Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
+            $content = $content -replace [regex]::Escape($key.value), $key.key
+        }
+        Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
+    
+        # Add first line to show sanitation //todo this doesn't really work :/
+        $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
+        return $content
+    }
+    
+    ## Build the key table for all the files
+    function Find-Keys ( [string] $fp, $flags, $IgnoredStrings ) {
+        Write-Verbose "Finding Keys in $fp"
+        # dictionary to populate
+        $Keys = @{}
+        # Open file
+        $f = [IO.file]::ReadAllText( $fp )
+        
+        # Process file for tokens
+        $count = 1
+        foreach ( $token in $flags ) {
+            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.Count)*100)
+            $pattern = $token.Item1
+            Write-Verbose "Using '$pattern' to find matches"
+            $matches = [regex]::matches($f, $pattern)
+            
+            # Grab the value for each match, if it doesn't have a key make one
+            foreach ( $m in $matches ) {
+                $mval = $m.groups[1].value
+                Write-Verbose "Matched: $mval"
+    
+                # Do we have a key already?
+                if ( $Keys.ContainsValue( $mval ) ) {
+                    $k =  $Keys.GetEnumerator() | Where-Object { $_.Value -eq $mval }
+                    Write-Verbose "Recognised as: $($k.key)"
+                
+                # Check the $IgnoredStrings list
+                } elseif ( $IgnoredStrings.Contains($mval) ) {
+                    Write-Verbose "Found ignored string: $mval"
+    
+                # Create a key and assign it to the match
+                } else { 
+                    Write-Verbose "Found new token! $( $mval )"
+                    $newkey = gen-key-name $Keys $token
+                    $Keys[$newkey] = $mval
+                    Write-Verbose "Made new alias: $newkey"
+                    Write-Verbose "Made new key entry: $( $mval ) -> $newkey"
                 }
             }
+        }
+        # Set the bar to full for manage-job
+        Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
+    
+        Write-Verbose "Keys: $keys"
+        return $keys
+    }
+}
 
-            $mval = $m.groups[1].value
-            Write-Verbose "Matched: $mval"
+# Takes a file and outputs it's the keys
+function Scout-Stripper ($files, $flags, $rootFolder) {
+    Write-Verbose "Started scout stripper"
+    $q = New-Object System.Collections.Queue
+    . $JobFunctions # need for using Get-PathTail
 
-            # Do we have a key already?
-            if ( $key.ContainsValue( $mval ) ) {
-                $k =  $key.GetEnumerator() | Where-Object { $_.Value -eq $mval }
-                Write-Verbose "Recognised as: $($k.key)"
-            
-            # Check the $IgnoredStrings list
-            } elseif ( $IgnoredStrings.Contains($mval) ) {
-                Write-Verbose "Found ignored string: $mval"
+    ForEach ($file in $files) {
+        $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
+        $ScriptBlock = {
+            PARAM($file, $flags, $IgnoredStrings, $vPref)
+            $VerbosePreference = $vPref
 
-            # Create a key and assign it to the match
-            } else { 
-                Write-Verbose "Found new token! $( $mval )"
-                $newkey = gen-key-name $token
-                $key[$newkey] = $mval
-                Write-Verbose "Made new alias: $newkey"
-                Write-Information "`rMade new key entry: $( $mval ) -> $newkey"
+            Find-Keys $file $flags $IgnoredStrings
+            Write-Verbose "Found all the keys in $file"
+        } 
+        $ArgumentList = $file,$flags,$IgnoredStrings,$VerbosePreference
+        $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
+    }
+    Manage-Job $q 5
+    Write-Verbose "Key finding jobs are finished"
+
+    # Collect the output from each of the jobs
+    $jobs = Get-Job -State Completed
+    $keylists = @()
+    ForEach ($job in $jobs) {
+        $kl = Receive-Job -Keep -Job $job
+        $keylists += $kl
+    }
+    Write-Debug "retrieved the following from completed jobs:`n$($keylists | Out-String)"
+    
+    # Clean up the jobs
+    Get-Job | Remove-Job | Out-Null
+    Write-Verbose "cleaned up scouting jobs"
+
+    return $keylists
+}
+
+function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [bool] $inPlace) {
+    Write-Verbose "Started Sanitising Stripper"
+    $q = New-Object System.Collections.Queue
+    . $JobFunctions # need for using Get-PathTail
+
+    # Sanitise each of the files with the final keylist and output them with Save-file
+    ForEach ($file in $files) {
+        $name = "Sanitising $(Get-PathTail $file $rootFolder)"
+        $ScriptBlock = {
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $inPlace, $vPref)
+            $VerbosePreference = $vPref
+            $DebugPreference = $vPref
+
+            $content = [IO.file]::ReadAllText($file)
+            Write-Verbose "Loaded in content of $file"
+
+            $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
+            write-verbose "Sanitised content of $file"
+
+            $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder $inPlace
+            Write-Verbose "Exported $file to $exportedFileName"
+
+            $exportedFileName
+        }
+        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
+        $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
+    }
+    Manage-Job $q 5
+    write-verbose "Sanitising jobs are finished. Files should be exported"
+
+    # Collect the names of all the sanitised files
+    $jobs = Get-Job -State Completed
+    $sanitisedFilenames = @()
+    ForEach ($job in $jobs) {
+        $fn = Receive-Job -Keep -Job $job
+        $sanitisedFilenames += $fn
+    }
+    Write-Verbose "Sanitised file names are:`n$sanitisedFilenames"
+
+    # Clean up the jobs
+    Get-Job | Remove-Job | Out-Null
+    
+    return $sanitisedFilenames
+}
+
+function Merging-Stripper ([Array] $keylists) {
+    . $JobFunctions # Make the gen-key-name function available
+
+    # If we only proc'd one file then return that
+    if ($keylists.Count -eq 1) {
+        Write-Verbose "Shortcutting for one file"
+        return $keylists[0]
+    }
+    
+    $output = @{}
+    $totalKeys = $keylists | ForEach-Object { $result = 0 } { $result += $_.Count } { $result }
+    $currentKey = 0
+    ForEach ($keylist in $keylists) {
+        ForEach ($Key in $keylist.Keys) {
+            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100)
+            if ($output.values -notcontains $keylist.$Key) {
+                $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
+                $output.$newname = $keylist.$key
             }
         }
     }
-    if (-not $Silent) {Write-Host "`r"}
+    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -Completed
 
-    # //todo intelligently build out keylist further using similar patterns?
-    return $f
+    return $output
 }
 
+function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
+    Write-Verbose "Clearing all background jobs (again in-case)"
+    Get-Job | Stop-Job
+    Get-job | Remove-Job
 
+    # While there are still jobs to deploy or there are jobs still running
+    While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
+        $JobsRunning = $(Get-Job -State 'Running').count
+        
+        if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
+            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
+                if ($jobQ.Count -eq 0) {return}
+                $j = $jobQ.Dequeue()
+                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
+            }
+        }
+
+        # For each job started and each child of those jobs
+        ForEach ($Job in Get-Job) {
+            ForEach ($Child in $Job.ChildJobs){
+                ## Get the latest progress object of the job
+                $Progress = $Child.Progress[$Child.Progress.Count - 1]
+                
+                ## If there is a progress object returned write progress
+                If ($Progress.Activity -ne $Null){
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
+                }
+                
+                ## If this child is complete then stop writing progress
+                If ($Progress.PercentComplete -eq 100){
+                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -Complete
+                    ## Clear all progress entries so we don't process it again
+                    $Child.Progress.Clear()
+                }
+            }
+        }
+
+        ## Setting for loop processing speed
+        Start-Sleep -Milliseconds 100
+    }
+
+    ForEach ($Job in Get-Job) {
+        ForEach ($Child in $Job.ChildJobs) {
+            Write-Progress -Activity $Job.Name -ID $Job.ID  -Complete
+        }
+    }       
+}
+
+function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
+    # There shouldn't be any other background jobs, but kill them anyway.
+    Write-Debug "Current jobs running are: $(get-job *)"
+    Get-Job | Stop-Job
+    Get-job | Remove-Job
+    Write-Debug "removed all background jobs"
+
+    # Use Scout stripper to start looking for the keys in each file
+    $keylists = Scout-Stripper $files $flags $rootFolder
+    Write-verbose "finished finding keys"
+
+    # Add potentially imported keys to the list of keys
+    if ($importedKeys) { [array]$keylists += $importedKeys }
+
+    # Merge all of the keylists into a single dictionary.
+    $finalKeyList = Merging-Stripper $keylists
+    Write-Verbose "Finished merging keylists"
+
+    # Sanitise the files
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
+    Write-verbose "Finished sanitising and exporting files"
+
+    return $finalKeyList, $sanitisedFilenames
+}
 
 ####################################################################################################
 # Start Actual Execution
@@ -547,7 +751,7 @@ if (-not $configUsed -and -not $SelfContained) {
         exit -9
     }
 
-    $ans = Read-Host "Unable to find Config file to extend the list of indicators used to find sensitive data.
+    $ans = Read-Host "Unable to find a strippyConfig.json file to extend the list of indicators used to find sensitive data.
 Continuing now will only sanitise IP addresses and Windows UNC paths
 Would you like to continue with only these? 
 y/n> (y) "
@@ -560,6 +764,8 @@ y/n> (y) "
     }
 }
 
+# // todo this could/should be a function
+$importedKeys = $null
 if ( $KeyFile ) {
     # Check the keyfile is legit before we start.
     Write-Verbose "Checking the KeyFile"
@@ -583,15 +789,18 @@ if ( $KeyFile ) {
     # Assume it's a valid format for now and check in the proc-keyfile function
 
     Write-Information "Importing Keys from $KeyFile"
-    proc-keyfile $kf.FullName # we need the fullname to load the file in
+    $importedKeys = proc-keyfile $kf.FullName # we need the fullname to load the file in
     Write-Information "Finished Importing Keys from keyfile:"
-    if (-not $Silent) {$key}
+    if (-not $Silent) {$importedKeys}
 }
 
-Write-Verbose "Attempting to Santise $File."
+Write-Verbose "Attempting to Santise $File"
 $File = $(Get-Item $File).FullName
 
-## Detect files
+## Build the list of files to work on
+$filesToProcess = @()
+$OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
+
 # is it a directory?
 $isDir = $( get-item $File ).Mode -eq 'd-----'
 if ( $isDir ) {
@@ -599,77 +808,68 @@ if ( $isDir ) {
 
     # Get all the files
     if ($Recurse) {
+        Write-Verbose "Recursive mode means we get all the files"
         $files = Get-ChildItem $File -Recurse -File
     } else {
-        $files = Get-ChildItem $File
+        Write-Verbose "Normal mode means we only get the files at the top directory"
+        $files = Get-ChildItem $File -File
     }
 
-    # Filter for only the .txt and .log files and the absolute directory of each file
+    # Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
     $files = $files | Where-Object { 
         # ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and 
         ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
         ( $(Get-MimeType -CheckFile $_.FullName) -match "image") -and -not
         ( $_.name -like '*.sanitised.*')
-    } | ForEach-Object {$_.FullName} 
+    } | ForEach-Object {$_.FullName}
 
-    # Check if there's anything there to proc'
+    # If we didn't find any files clean up and exit
     if ( $files.Length -eq 0 ) {
-        Write-Information "There were no files to Sanitise in $File"
+        Write-Error "Could not find any appropriate files to sanitise in $File"
         Clean-Up
     }
 
-    # Build key list
-    foreach ( $f in $files ) {
-        $pre = $key.count
-        Write-Information "Gathering Keys from $f"
-        Find-Keys $f | Out-Null
-        Write-Verbose "Got $($key.count - $pre) keys from $f"
-    }
+    # Declare which files we'd like to process
+    $filesToProcess = $files
 
-    # Found the Keys, lets output the keylist
-    make-keylist
-
-    # Create and set output folders if needed
-    $OutputFolder = ''
-    if ($AlternateOutputFolder) {
-        New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir        
-        $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
-        Write-Information "Using Alternate Folder for output: $OutputFolder"
-    } else {
-        $p = $(Get-Item $File).Parent.FullName
-        $f = $(Get-Item $File).Name
-        $f = "$p\$f.sanitised"
-        
-        New-Item -ItemType directory -Path "$f" -Force | Out-Null
-        Write-Verbose "Made output folder: $f"
+    # Calc the output folder
+    $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
+    if ($AlternateOutputFolder) {} else {
+        New-Item -ItemType directory -Path $f -Force | Out-Null
         $OutputFolder = $(Get-Item "$f").FullName
-    }
-
-    # Sanitise using key list
-    foreach ($f in $files ) {
-        $relativePath = ($f -split ($File -replace '\\','\\'))[1]
-        $FilenameOUT = "$OutputFolder\$relativePath"
-
-        Sanitise $([IO.file]::ReadAllText( $f )) $f $filenameOUT
-    }
+    } # Make the new dir
 
 # We also want to support archives by treating them as folders we just have to unpack first
 } elseif ( $( get-item $File ).Extension -eq '.zip') {
     Write-Information "Archives are not supported yet"
+    # unpack
+    # run something similar to the folder code above
+    # add files that we want to process to $filestoprocess
+    # set a flag or similar to handle the repacking of the files into a .zip
 
 # It's not a folder, so go for it
 } else {
     Write-Verbose "$File is a file"
-    Write-Information "Gathering Keys from $File"
-    $file_content = Find-Keys $(get-item $File).FullName
-
-    # Output the keys prior to sanitisation to save all our work so far.
-    make-keylist
-
-    Sanitise $file_content $File $(Get-Item $File).FullName
+    
+    # Add the file to process to the list
+    $filesToProcess += $(get-item $File).FullName
 }
 
+# Redirect the output folder if necessary
+if ($AlternateOutputFolder) {
+    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir
+    $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
+    Write-Information "Using Alternate Folder for output: $OutputFolder"
+}
+
+# give the head stripper all the information we've just gathered about the task
+$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
+
+# Found the Keys, lets output the keylist
+output-keylist $finalKeyList $listOfSanitisedFiles
+
+
 Write-Information "`n==========================================================================`nProcessed Keys:"
-if (-not $Silent) {$key}
+if (-not $Silent) {$finalKeyList}
 
 Clean-Up
