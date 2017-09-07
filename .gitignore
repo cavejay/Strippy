@@ -3,6 +3,5 @@
 !.gitignore
 !strippy.ps1
 !tests
-!testy.ps1
 !*.Tests.ps1
 !idea.ps1
