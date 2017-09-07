@@ -810,8 +810,10 @@ if ( $isDir ) {
 
     # Calc the output folder
     $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
-    if ($AlternateOutputFolder) {} else {New-Item -ItemType directory -Path $f -Force | Out-Null} # Make the new dir
-    $OutputFolder = $(Get-Item "$f").FullName
+    if ($AlternateOutputFolder) {} else {
+        New-Item -ItemType directory -Path $f -Force | Out-Null
+        $OutputFolder = $(Get-Item "$f").FullName
+    } # Make the new dir
 
 # We also want to support archives by treating them as folders we just have to unpack first
 } elseif ( $( get-item $File ).Extension -eq '.zip') {
