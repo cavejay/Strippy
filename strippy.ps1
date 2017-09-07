@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 170710
+    Version: 2.170907
     Compatability: Powershell 3+
 
 .LINK
@@ -81,25 +81,27 @@
 [CmdletBinding()]
 param (
     # The File or Folder you wish to sanitise
-    [string] $File, 
+    [String] $File, 
      # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
-    [switch] $Silent,
+    [Switch] $Silent,
     # Looks for log files throughout a directory tree rather than only in the first level
     [Switch] $Recurse = $false, 
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    # [switch] $InPlace, 
+    [switch] $InPlace = $false,
     # Creates a barebones strippyConfig.json file for the user to fill edit
-    [switch] $MakeConfig, 
+    [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeyListOutput
-    [string] $keyout, 
+    [String] $keyout, 
     # Specifies an alternate name and path for the keylist file
-    [string] $AlternateKeyListOutput = $keyout,
+    [String] $AlternateKeyListOutput = $keyout,
     # A shortcut for -AlternateOutputFolder 
     [String] $out, 
     # Specifies an alternate path or file for the sanitised file
     [String] $AlternateOutputFolder = $out, 
     # Specifies a previously generated keylist file to import keys from for this sanitisation
-    # [String] $KeyFile, 
+    [String] $KeyFile, 
+    # Archive the folder or file after sanitising it
+    # [switch] $zip, 
     # Specifies a config file to use rather than the default local file or no file at all.
     [String] $Config
 )
@@ -259,6 +261,20 @@ function Clean-Up () {
     exit
 }
 
+# Print only when not printing verbose comments
+function write-when-normal {
+    [cmdletbinding()]
+    param([Switch] $NoNewline, [String] $str)
+
+    if ($VerbosePreference -ne "Continue" -and -not $Silent) {
+        if ($NoNewline) {
+            Write-Host -NoNewline $str
+        } else {
+            Write-Host $str
+        }
+    } 
+}
+
 ## Process Config file 
 function proc-config-file ( $cf ) {
     Write-Verbose "Added '\'s where necessary"
@@ -280,7 +296,7 @@ function proc-config-file ( $cf ) {
     Write-Verbose "Applying Config to script"
     # Split up and assign all the pieces to their variables
     $script:KeyListFirstline = $c.KeyListFirstLine
-    $script:KeyFile = $c.KeyFile
+    $script:KeyFile = @($script:Keyfile, $c.KeyFile)[[Boolean] $c.KeyFile]
     $script:SanitisedFileFirstline = $c.SanitisedFileFirstline
     $script:IgnoredStrings = $c.IgnoredStrings
     foreach ($indicator in $c.indicators) {
@@ -290,47 +306,46 @@ function proc-config-file ( $cf ) {
     }
 }
 
-## Process a KeyFile
-# function proc-keyfile ( $kf ) {
-#     $kfLines = [IO.file]::ReadAllLines($kf)
+# Process a KeyFile
+function proc-keyfile ( [string] $kf ) {
+    $importedKeylist = @{}
+    $kfLines = [IO.file]::ReadAllLines($kf)
 
-#     # Find length of keylist
-#     $startOfFileList = $kfLines.IndexOf("List of files using this Key:")+1
-#     $endOfKeyList = $startOfFileList - 4
+    # Find length of keylist
+    $startOfFileList = $kfLines.IndexOf("List of files using this Key:")+1
+    $endOfKeyList = $startOfFileList - 4
 
-#     if ( $startOfFileList -eq 0 ) {
-#         write-when-normal '' 
-#         Write-Error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
-#         exit -1
-#     }
+    if ( $startOfFileList -eq 0 ) {
+        Write-Error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
+        exit -1
+    }
 
-#     $dataLines = $kfLines[4..$endOfKeyList]
-#     foreach ($d in $dataLines) {
-#         $d = $d -replace '\s+', ' ' -split "\s"
-#         if ( $d.Length -ne 3) {
-#             write-when-normal '' 
-#             Write-Error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
-#             exit -1
-#         }
+    $dataLines = $kfLines[4..$endOfKeyList]
+    foreach ($d in $dataLines) {
+        $d = $d -replace '\s+', ' ' -split "\s"
+        if ( $d.Length -ne 3) {
+            Write-Error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
+            exit -1
+        }
 
-#         write-when-normal -NoNewline '.'
-#         Write-Verbose "Found Key: $($d[0]) & Value: $($d[1])"
-#         $k = $d[0]; $v = $d[1]
+        Write-Verbose "Found Key: $($d[0]) & Value: $($d[1])"
+        $k = $d[0]; $v = $d[1]
 
-#         if ( $k -eq "" -or $v -eq "") {
-#             write-when-normal '' 
-#             Write-Error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
-#             exit -1
-#         }
+        if ( $k -eq "" -or $v -eq "") {
+            write-when-normal '' 
+            Write-Error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
+            exit -1
+        }
 
-#         $key[$k] = $v
-#     }
-#     write-when-normal '.'
+        $importedKeylist[$k] = $v
+    }
 
-#     foreach ($d in $kfLines[$startOfFileList..$( $kfLines.Length - 2 )]) {
-#         $script:listOfSanitisedFiles += $d;
-#     }
-# }
+    foreach ($d in $kfLines[$startOfFileList..$( $kfLines.Length - 2 )]) {
+        $script:listOfSanitisedFiles += $d;
+    }
+
+    return $importedKeylist
+}
 
 function Get-FileEncoding {
     # This function is only included here to preserve this as a single file.
@@ -408,31 +423,34 @@ $JobFunctions = {
         return $possiblename
     }
 
-    function Save-File ( [string] $file, [string] $content, [string] $rootFolder, [string] $OutputFolder ) {        
-        # if ( -not $InPlace ) {
+    function Save-File ( [string] $file, [string] $content, [string] $rootFolder, [string] $OutputFolder, [bool] $inPlace ) { 
+        $filenameOUT = ''
+        if ( -not $InPlace ) {
             # Create output file's name
-        $name = Split-Path $file -Leaf -Resolve
-        $filenameParts = $name -split '\.'
-        $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
-        $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
-        if ($rootFolder) {
-            Write-verbose "Sanitising a folder, foldername is $rootFolder"
-            $locality = Get-PathTail $(Split-Path $file) $rootFolder
-            Write-Verbose "File is $locality from the root folder"
-            $filenameOUT = Join-Path $OutputFolder $locality 
-            $filenameOut = Join-Path $filenameOUT $sanitisedName
+            $name = Split-Path $file -Leaf -Resolve
+            $filenameParts = $name -split '\.'
+            $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
+            $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+            if ($rootFolder) {
+                Write-verbose "Sanitising a folder, foldername is $rootFolder"
+                $locality = Get-PathTail $(Split-Path $file) $rootFolder
+                Write-Verbose "File is $locality from the root folder"
+                $filenameOUT = Join-Path $OutputFolder $locality 
+                $filenameOut = Join-Path $filenameOUT $sanitisedName
+            } else {
+                $filenameOUT = Join-Path $OutputFolder $sanitisedName
+            }
         } else {
-            $filenameOUT = Join-Path $OutputFolder $sanitisedName
+            Write-Verbose "Overwriting original file at $file"
+            $filenameOUT = $file
         }
-
-            # todo this won't work for recursive folders
-        # }
     
         # Save file as .santised.extension
         if (test-path $filenameOUT) {} else {
             New-Item -Force $filenameOUT | Out-Null
         }
         $content | Out-File -force -Encoding ASCII $filenameOUT
+        Write-Verbose "Written out to $filenameOUT"
         
         # Return name of sanitised file for use by the keylist
         return "$( $(Get-Date).toString() ) - $filenameOUT"
@@ -541,7 +559,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
     return $keylists
 }
 
-function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder) {
+function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [bool] $inPlace) {
     Write-Verbose "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
@@ -550,7 +568,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     ForEach ($file in $files) {
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
-            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $vPref)
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $inPlace, $vPref)
             $VerbosePreference = $vPref
             $DebugPreference = $vPref
 
@@ -560,12 +578,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
             write-verbose "Sanitised content of $file"
 
-            $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder
+            $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder $inPlace
             Write-Verbose "Exported $file to $exportedFileName"
 
             $exportedFileName
         }
-        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$VerbosePreference
+        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q 5
@@ -591,6 +609,7 @@ function Merging-Stripper ([Array] $keylists) {
 
     # If we only proc'd one file then return that
     if ($keylists.Count -eq 1) {
+        Write-Verbose "Shortcutting for one file"
         return $keylists[0]
     }
     
@@ -624,7 +643,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
             1..$($MaxJobs-$JobsRunning) | ForEach-Object {
                 if ($jobQ.Count -eq 0) {return}
                 $j = $jobQ.Dequeue()
-                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3]
+                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
             }
         }
 
@@ -659,7 +678,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
     }       
 }
 
-function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder) {
+function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
@@ -670,12 +689,15 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     $keylists = Scout-Stripper $files $flags $rootFolder
     Write-verbose "finished finding keys"
 
+    # Add potentially imported keys to the list of keys
+    if ($importedKeys) { [array]$keylists += $importedKeys }
+
     # Merge all of the keylists into a single dictionary.
     $finalKeyList = Merging-Stripper $keylists
     Write-Verbose "Finished merging keylists"
 
     # Sanitise the files
-    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
     Write-verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
@@ -742,40 +764,42 @@ y/n> (y) "
     }
 }
 
-# if ( $KeyFile ) {
-#     # Check the keyfile is legit before we start.
-#     Write-Verbose "Checking the KeyFile"
-#     if ( Test-Path $KeyFile ) {
-#         $kf = Get-Item $KeyFile
-#         write-verbose "Key File exists and is: '$kf'"
-#     } else {
-#         Write-Error "Error: $KeyFile could not be found"
-#         exit -1
-#     }
+# // todo this could/should be a function
+$importedKeys = $null
+if ( $KeyFile ) {
+    # Check the keyfile is legit before we start.
+    Write-Verbose "Checking the KeyFile"
+    if ( Test-Path $KeyFile ) {
+        $kf = Get-Item $KeyFile
+        write-verbose "Key File exists and is: '$kf'"
+    } else {
+        Write-Error "Error: $KeyFile could not be found"
+        exit -1
+    }
 
-#     if ( $kf.Mode -eq 'd-----' ) {
-#         Write-Error "Error: $KeyFile cannot be a directory"
-#         Write-Verbose $kf.Mode
-#         exit -1
-#     } elseif ( $kf.Extension -ne '.txt') {
-#         Write-Error "Error: $KeyFile must be a .txt"
-#         Write-Verbose "Key file was a '$( $kf.Extension )'"
-#         exit -1
-#     }
-#     # Assume it's a valid format for now and check in the proc-keyfile function
+    if ( $kf.Mode -eq 'd-----' ) {
+        Write-Error "Error: $KeyFile cannot be a directory"
+        Write-Verbose $kf.Mode
+        exit -1
+    } elseif ( $kf.Extension -ne '.txt') {
+        Write-Error "Error: $KeyFile must be a .txt"
+        Write-Verbose "Key file was a '$( $kf.Extension )'"
+        exit -1
+    }
+    # Assume it's a valid format for now and check in the proc-keyfile function
 
-#     Write-Information "Importing Keys from $KeyFile"
-#     proc-keyfile $kf.FullName # we need the fullname to load the file in
-#     Write-Information "Finished Importing Keys from keyfile:"
-#     if (-not $Silent) {$key}
-# }
+    Write-Information "Importing Keys from $KeyFile"
+    $importedKeys = proc-keyfile $kf.FullName # we need the fullname to load the file in
+    Write-Information "Finished Importing Keys from keyfile:"
+    if (-not $Silent) {$importedKeys}
+}
 
 Write-Verbose "Attempting to Santise $File"
 $File = $(Get-Item $File).FullName
 
 ## Build the list of files to work on
 $filesToProcess = @()
-$OutputFolder = $File | Split-Path # Default for a file
+$OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
 
 # is it a directory?
 $isDir = $( get-item $File ).Mode -eq 'd-----'
@@ -839,7 +863,7 @@ if ($AlternateOutputFolder) {
 }
 
 # give the head stripper all the information we've just gathered about the task
-$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder
+$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
 
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
