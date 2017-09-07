@@ -364,7 +364,7 @@ function Get-FileEncoding {
         $encoding_found = $false
         foreach ($encoding in [System.Text.Encoding]::GetEncodings().GetEncoding()) {
             $preamble = $encoding.GetPreamble()
-            if ($preamble) {
+            if ($preamble -and $bom) {
                 foreach ($i in 0..$preamble.Length) {
                     if ($preamble[$i] -ne $bom[$i]) {
                         break
