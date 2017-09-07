@@ -387,6 +387,9 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
+    function Get-PathTail ($d1, $d2) {
+        [String]::Join('',$($d2[$($d1.length)..$($d2.length-1)],$d1[$($d2.length)..$($d1.length-1)])[$d1 -gt $d2])
+    }
 
     # Generates a keyname without doubles
     $nameCounts = @{}
@@ -405,14 +408,22 @@ $JobFunctions = {
         return $possiblename
     }
 
-    function Save-File ( [string] $file, [string] $content, [string] $OutputFolder ) {        
+    function Save-File ( [string] $file, [string] $content, [string] $rootFolder, [string] $OutputFolder ) {        
         # if ( -not $InPlace ) {
             # Create output file's name
-            $name = Split-Path $file -Leaf -Resolve
-            $filenameParts = $name -split '\.'
-            $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
-            $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+        $name = Split-Path $file -Leaf -Resolve
+        $filenameParts = $name -split '\.'
+        $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
+        $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
+        if ($rootFolder) {
+            Write-verbose "Sanitising a folder, foldername is $rootFolder"
+            $locality = Get-PathTail $(Split-Path $file) $rootFolder
+            Write-Verbose "File is $locality from the root folder"
+            $filenameOUT = Join-Path $OutputFolder $locality 
+            $filenameOut = Join-Path $filenameOUT $sanitisedName
+        } else {
             $filenameOUT = Join-Path $OutputFolder $sanitisedName
+        }
 
             # todo this won't work for recursive folders
         # }
@@ -429,11 +440,10 @@ $JobFunctions = {
     
     ## Sanitises a file and stores sanitised data in a key
     function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
-        # Process file for items found using tokens in descending order of length. 
-        # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
-        # $finalKeyList = @($finalKeyList)
         Write-Verbose "Sanitising file: $filename"
         $count = 0
+        # Process file for items found using tokens in descending order of length. 
+        # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
@@ -441,7 +451,7 @@ $JobFunctions = {
         }
         Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
-        # Add first line to show sanitation
+        # Add first line to show sanitation //todo this doesn't really work :/
         $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
         return $content
     }
@@ -495,11 +505,13 @@ $JobFunctions = {
 }
 
 # Takes a file and outputs it's the keys
-function Scout-Stripper ($files, $flags) {
+function Scout-Stripper ($files, $flags, $rootFolder) {
     Write-Verbose "Started scout stripper"
     $q = New-Object System.Collections.Queue
+    . $JobFunctions # need for using Get-PathTail
+
     ForEach ($file in $files) {
-        $name = "Finding Keys in $($(get-item $file).Name)"
+        $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $vPref)
             $VerbosePreference = $vPref
@@ -529,15 +541,16 @@ function Scout-Stripper ($files, $flags) {
     return $keylists
 }
 
-function Sanitising-Stripper ($finalKeyList, $files, $OutputFolder) {
+function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder) {
     Write-Verbose "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
+    . $JobFunctions # need for using Get-PathTail
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
-        $name = "Sanitising $($(get-item $file).Name)"
+        $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
-            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $vPref)
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $vPref)
             $VerbosePreference = $vPref
             $DebugPreference = $vPref
 
@@ -547,12 +560,12 @@ function Sanitising-Stripper ($finalKeyList, $files, $OutputFolder) {
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
             write-verbose "Sanitised content of $file"
 
-            $exportedFileName = Save-File $file $sanitisedOutput $OutputFolder
+            $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder
             Write-Verbose "Exported $file to $exportedFileName"
 
             $exportedFileName
         }
-        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$VerbosePreference
+        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q 5
@@ -628,7 +641,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                 
                 ## If this child is complete then stop writing progress
                 If ($Progress.PercentComplete -eq 100){
-                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete  -ID $Job.ID  -Complete
+                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
                 }
@@ -646,7 +659,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
     }       
 }
 
-function Head-Stripper ($files, $OutputFolder) {
+function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder) {
     # There shouldn't be any other background jobs, but kill them anyway.
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
@@ -654,7 +667,7 @@ function Head-Stripper ($files, $OutputFolder) {
     Write-Debug "removed all background jobs"
 
     # Use Scout stripper to start looking for the keys in each file
-    $keylists = Scout-Stripper $files $flags
+    $keylists = Scout-Stripper $files $flags $rootFolder
     Write-verbose "finished finding keys"
 
     # Merge all of the keylists into a single dictionary.
@@ -662,7 +675,7 @@ function Head-Stripper ($files, $OutputFolder) {
     Write-Verbose "Finished merging keylists"
 
     # Sanitise the files
-    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder
     Write-verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
@@ -824,7 +837,7 @@ if ($AlternateOutputFolder) {
 }
 
 # give the head stripper all the information we've just gathered about the task
-$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $OutputFolder
+$finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder
 
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
