@@ -88,7 +88,7 @@ param (
     [Switch] $Recurse = $false, 
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [switch] $InPlace = $false,
-    # Creates a barebones strippyConfig.json file for the user to fill edit
+    # Creates a barebones strippy.conf file for the user to fill edit
     [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeyListOutput
     [String] $keyout, 
@@ -112,10 +112,10 @@ param (
 $SelfContained = $false
 
 ## Variables: (Over written by any config file)
-$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
-$SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
-$KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
-$KeyFileName = "KeyList - $( $(Get-data).toString() ).txt"
+IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
+SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
+KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
+KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
@@ -124,16 +124,14 @@ $KeyFileName = "KeyList - $( $(Get-data).toString() ).txt"
 $PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
 
 # Flags
-# usernames, hostnames, ip addresses ## DSN is different!
-$flags = New-Object System.Collections.ArrayList
+# usernames, hostnames, ip addresses
+flags = New-Object System.Collections.ArrayList
+# Added to every list of flags to cover IPs and UNC's
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
     [System.Tuple]::Create("((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", 'Address'),
     [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
-
-        # Format: (regex, Label to Replace)
-        # 'db users' JDBC_USER: <user>
-    ))
+))
 
 # Output Settings
 $oldInfoPref = $InformationPreference
@@ -147,60 +145,60 @@ if ( $Verbose -and -not $Silent) {
 }
 
 # Check if we're _just_ creating a default config file
-if ( $MakeConfig ) {
-    $confloc = "$( Get-Location )\strippyConfig.json"
-    $defaultConfig = '{
-    "_Comment": "These are the defaults. You should alter them. Please go do",
-    "_version": 0.1,
-    "UseMe": %useme%,
-    "IgnoredStrings": [%ignoredstrings%],
-    "SanitisedFileFirstLine": "%logfirstline%",
-    "KeyListFirstline": "%keyfirstline%",
+# if ( $MakeConfig ) {
+#     $confloc = Join-Path $( Get-Location ) strippy.conf
+#     $defaultConfig = '{
+#     "_Comment": "These are the defaults. You should alter them. Please go do",
+#     "_version": 0.1,
+#     "UseMe": %useme%,
+#     "IgnoredStrings": [%ignoredstrings%],
+#     "SanitisedFileFirstLine": "%logfirstline%",
+#     "KeyListFirstline": "%keyfirstline%",
 
-    "KeyFile": "",
-    "indicators": [
-        %indicators%
-    ]
-}
-'
-    if ( $SelfContained ) {
-        Write-Verbose "In single file mode. Exporting most of the config from file"
-        # In here we export all the variables we've set above and such.
-        $defaultConfig = $defaultConfig -replace '%useme%', "false"
-        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
-        $defaultConfig = $defaultConfig -replace '%logfirstline%', ""
-        $defaultConfig = $defaultConfig -replace '%keyfirstline%', ""
-        $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
-        $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
-    } else {
-        # Fill areas of the default config
-        $defaultConfig = $defaultConfig -replace '%useme%', "true"
-        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
-        $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
-        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
-        $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
-        [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
-        [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
-    }
+#     "KeyFile": "",
+#     "indicators": [
+#         %indicators%
+#     ]
+# }
+# '
+#     if ( $SelfContained ) {
+#         Write-Verbose "In single file mode. Exporting most of the config from file"
+#         # In here we export all the variables we've set above and such.
+#         $defaultConfig = $defaultConfig -replace '%useme%', "false"
+#         $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
+#         $defaultConfig = $defaultConfig -replace '%logfirstline%', ""
+#         $defaultConfig = $defaultConfig -replace '%keyfirstline%', ""
+#         $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
+#         $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
+#     } else {
+#         # Fill areas of the default config
+#         $defaultConfig = $defaultConfig -replace '%useme%', "true"
+#         $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
+#         $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
+#         $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
+#         $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
+#         [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
+#         [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
+#     }
 
 
-    # Check to make sure we're not overwriting someone's config file
-    if ( Test-Path $( $confloc ) ) {
-        Write-Information "A config file already exists. Would you like to overwrite it with the default?"
-        $ans = Read-Host "y/n> (n) "
-        if ( $ans -ne 'y' ) {
-            Write-Information "Didn't overwrite the current config file"
-            exit 0
-        } else {
-            Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
-            Write-Information "$([IO.file]::ReadAllText($confloc))"
-        }
-    }
+#     # Check to make sure we're not overwriting someone's config file
+#     if ( Test-Path $( $confloc ) ) {
+#         Write-Information "A config file already exists. Would you like to overwrite it with the default?"
+#         $ans = Read-Host "y/n> (n) "
+#         if ( $ans -ne 'y' ) {
+#             Write-Information "Didn't overwrite the current config file"
+#             exit 0
+#         } else {
+#             Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
+#             Write-Information "$([IO.file]::ReadAllText($confloc))"
+#         }
+#     }
 
-    $defaultConfig | Out-File -Encoding ascii $confloc
-    Write-Information "Generated config file: $confloc"
-    exit 0
-}
+#     $defaultConfig | Out-File -Encoding ascii $confloc
+#     Write-Information "Generated config file: $confloc"
+#     exit 0
+# }
 
 # Usage
 if ( $File -eq "" ) {
@@ -278,32 +276,40 @@ function write-when-normal {
 
 ## Process Config file 
 function proc-config-file ( $cf ) {
-    Write-Verbose "Added '\'s where necessary"
-    # add another backslash whereever necessary
-    $cf = $cf -replace '\\', '\\'
+    $stages = @('UseMe', 'Config', 'Rules')
+    $stage = 0; $lineNum = 0
 
-    Write-Verbose "Swapping out date aliases"
-    $cf = $cf -replace '%date%', $( $(Get-Date).ToString() )
+    $config = @{}
 
-    Write-Verbose "Attemping JSON -> PSObject transform"
-    # turn into PS object
-    try {
-        $c = ConvertFrom-Json $cf -ErrorAction Stop
-    } catch {
-        Write-Error "Config file error:`n$_"
-        exit 0
-    }
+    ForEach ($line in $cf) {
+        $lineNum++
 
-    Write-Verbose "Applying Config to script"
-    # Split up and assign all the pieces to their variables
-    $script:KeyListFirstline = $c.KeyListFirstLine
-    $script:KeyFile = @($script:Keyfile, $c.KeyFile)[[Boolean] $c.KeyFile]
-    $script:SanitisedFileFirstline = $c.SanitisedFileFirstline
-    $script:IgnoredStrings = $c.IgnoredStrings
-    foreach ($indicator in $c.indicators) {
-        $script:flags.Add(
-            [System.Tuple]::Create($indicator[0], $indicator[1])
-        ) | Out-Null
+        # Super simple parser I hope 
+        $token,$enum = $line[0],0
+        while ($true) {
+            if ($token -eq ';') {continue}
+            elseif ($token -eq $null) {break}
+
+
+
+            switch ($stages[$stage]) {
+                'UseMe' {
+
+                }
+                'Config' {
+
+                }
+                'Rules' {
+                    
+                }
+                Default {
+                    Write-Error "Something went wrong on line $lineNum: $line"
+                    exit -1
+                }
+            }
+
+            $token = $line[$enum++]
+        }
     }
 }
 
@@ -723,15 +729,14 @@ if ( $Config ) {
     Write-Verbose "Finished Processing Config file"
 }
 
-# If we didn't get told what config to use check locally for a 'UseMe' config file
+# If we didn't get told what config to use, check locally for a 'UseMe' config file
 if (-not $configUsed -and -not $SelfContained) {
     try {
-        $tmp_f = "$( Get-location )\strippyConfig.json"
+        $tmp_f = join-path $( Get-location ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
-        $tmp_r = $true # Why is this here???
 
         # Check it has the UseMe field set to true before continuing
-        if ( $tmp_r -and $configText -match '"UseMe"\s*?:\s*?true\s*?,') { # should probs test this
+        if ( $configText -match 'UseMe\s*=\s*true' ) { # should probs test this
             Write-Verbose "Found local default config file to use, importing it's settings"
             proc-config-file $configText
             $configUsed = $true
@@ -752,12 +757,13 @@ if (-not $configUsed -and -not $SelfContained) {
         exit -9
     }
 
-    $ans = Read-Host "Unable to find a strippyConfig.json file to extend the list of indicators used to find sensitive data.
+    $ans = Read-Host "Unable to find a strippy.conf file. This file contains the rules that are used to determine sensitive data.
 Continuing now will only sanitise IP addresses and Windows UNC paths
 Would you like to continue with only these? 
 y/n> (y) "
     if ( $ans -eq 'n' ) {
-        Write-Information "Use the -MakeConfig argument to create a strippyConfig.json file and start added indicators"
+        # Could us another question here to ask if the user would like to make a config file
+        Write-Information "Use the -MakeConfig argument to create a strippy.conf file and start adding sensitive data rules"
         exit 0;
     } else {
         # Use default flags mentioned in the thingy
@@ -868,7 +874,6 @@ $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $Outp
 
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
-
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
 if (-not $Silent) {$finalKeyList}

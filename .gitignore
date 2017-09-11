@@ -4,4 +4,4 @@
 !strippy.ps1
 !tests
 !*.Tests.ps1
-!strippyConfig.ini
+!strippy.conf
