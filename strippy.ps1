@@ -300,10 +300,10 @@ function proc-config-file ( $cf ) {
 
                 }
                 'Rules' {
-                    
+
                 }
                 Default {
-                    Write-Error "Something went wrong on line $lineNum: $line"
+                    Write-Error "Something went wrong on line $($lineNum): $line"
                     exit -1
                 }
             }
