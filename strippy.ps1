@@ -277,48 +277,56 @@ function write-when-normal {
 ## Process Config file 
 function proc-config-file ( $cf ) {
     $stages = @('UseMe', 'Config', 'Rules')
-    $states = @('normal', 'quote', 'array')
-    $stage = 0; $lineNum = 0
+    $stage = 0; $lineNum = -1
 
     $config = @{}
 
     ForEach ($line in $cf) {
         $lineNum++
-        
-        # We don't care about empty lines
-        if ($line -eq '') { continue }
+        # Do some checks about the line we're on
+        if ($line -match "^\s*;") {
+            write-verbose "skipped comment: $line"
+            continue
+        } elseif ($line -eq '') {
+            write-verbose "skipped empty line: $linenum"
+            continue
+        }
 
-        # it might seriously simplify things if we only allow comments on their own line. 'cause then the semi colon has to be first and we can ignore the rest of the cases and it'll not even be a complicated parser any more. 
-        # This makes me sad but oh well. Simple is better.
-
-
-        # Super simple parser I hope 
-        $token,$enum = $line[0],0
-        $state = 0
-        while ( $token = $line[$enum++] ) {
-            # if this token is a 
-            if ($token -eq ';') {continue}
-            elseif ($token -eq $null) {break}
-
-
-
-            switch ($stages[$stage]) {
-                'UseMe' {
-
-                }
-                'Config' {
-
-                }
-                'Rules' {
-
-                }
-                Default {
-                    Write-Error "Something went wrong on line $($lineNum): $line"
-                    exit -1
-                }
+        # Check if this is a header
+        if ($line -match "^\s*\[ [\w\s]* \].*$") {
+            # is it a valid header structure?
+            $matches = [regex]::Matches($line, "^\s*\[ ([\w\s]*) \].*$")
+            if ($matches.groups -and $matches.groups.length -gt 1) {} else {
+                write-verbose "We found the '[]' for a header but something went wrong"
+                write-error "CONFIG: Error with Header on line $lineNum`: $line"
+                exit -1
             }
+            $headerVal = $matches.groups[1].value
+            # bump the stage if we found a valid header
+            if ($stages[$stage+1] -eq $headerVal) {
+                Write-Verbose "Moving to $($stages[$stage+1]) due to line $linenum`: $line"
+                $stage++
+            } else {
+                Write-Verbose "Tried to move to unknown stage '$headval' on line $linenum`: $line"
+                Write-Error "CONFIG: Invalid header '$headerval' on line $linenum`: $line"
+                exit -1
+            }
+        }
 
-            $token = $line[$enum++]
+        switch ($stages[$stage]) {
+            'UseMe' {
+
+            }
+            'Config' {
+
+            }
+            'Rules' {
+
+            }
+            Default {
+                Write-Error "CONFIG: Something went wrong on line $($lineNum): $line"
+                exit -1
+            }
         }
     }
 }
