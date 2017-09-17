@@ -277,7 +277,7 @@ function write-when-normal {
 ## Process Config file 
 function proc-config-file ( $cf ) {
     $stages = @('UseMe', 'Config', 'Rules')
-    $stage = 0; $lineNum = -1
+    $stage = 0; $lineNum = 0
 
     $config = @{}
 
@@ -306,6 +306,10 @@ function proc-config-file ( $cf ) {
             if ($stages[$stage+1] -eq $headerVal) {
                 Write-Verbose "Moving to $($stages[$stage+1]) due to line $linenum`: $line"
                 $stage++
+            } elseif ($stages -notcontains $headerVal) {
+                Write-Verbose "Tried to move to stage '$headval' at the wrong time on line $linenum`: $line"
+                Write-Error "CONFIG: Valid head '$headerval' in the wrong position on line $linenum`: $line"
+                exit -1
             } else {
                 Write-Verbose "Tried to move to unknown stage '$headval' on line $linenum`: $line"
                 Write-Error "CONFIG: Invalid header '$headerval' on line $linenum`: $line"
