@@ -113,8 +113,8 @@ $SelfContained = $false
 
 ## Variables: (Over written by any config file)
 $IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
-$SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
-$KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
+$SanitisedFileFirstline = "This file was Sanitised at {0}.`n==`n`n"
+$KeyListFirstline = "This keylist was created at {0}.`n"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
@@ -167,21 +167,20 @@ if ( $MakeConfig ) {
         # In here we export all the variables we've set above and such.
         $defaultConfig = $defaultConfig -replace '%useme%', "false"
         $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
-        $defaultConfig = $defaultConfig -replace '%logfirstline%', ""
-        $defaultConfig = $defaultConfig -replace '%keyfirstline%', ""
+        $defaultConfig = $defaultConfig -replace '%logfirstline%', "$SanitisedFileFirstline"
+        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "$keylistfirstline"
         $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
         $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
     } else {
         # Fill areas of the default config
         $defaultConfig = $defaultConfig -replace '%useme%', "true"
         $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
-        $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
-        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
+        $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at {0}``n==``n``n"
+        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at {0}.``n"
         $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
         [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
         [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
     }
-
 
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
@@ -216,19 +215,8 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
-function eval-config-string ([string] $str) {
-    $out = "$str"
-    if (($str[0..4] -join '') -eq "eval:") {
-        Write-Verbose "config string |$str| needs to be eval'd"
-        $out = $ExecutionContext.InvokeCommand.ExpandString(($str -split "eval:")[1])
-        Write-Verbose "Eval'd to: $out"
-    } else {
-        Write-Verbose "Config string |$str| was not eval'd"
-    }
-    return $out
-}
-
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
+    . $JobFunctions # to gain access to eval-config-string
     $kf = join-path $PWD "KeyList.txt"
     
     # We have Keys?
@@ -281,16 +269,13 @@ function proc-config-file ( $cf ) {
     # add another backslash whereever necessary
     $cf = $cf -replace '\\', '\\'
 
-    Write-Verbose "Swapping out date aliases"
-    $cf = $cf -replace '%date%', $( $(Get-Date).ToString() )
-
     Write-Verbose "Attemping JSON -> PSObject transform"
     # turn into PS object
     try {
         $c = ConvertFrom-Json $cf -ErrorAction Stop
     } catch {
         Write-Error "Config file error:`n$_"
-        exit 0
+        exit -1
     }
 
     Write-Verbose "Applying Config to script"
@@ -402,13 +387,26 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
-    function Get-PathTail ($d1, $d2) {
+    function eval-config-string ([string] $str) {
+        $out = "$str"
+        if (($str[0..4] -join '') -eq "eval:") {
+            Write-Verbose "config string |$str| needs to be eval'd"
+            $out = Invoke-Expression `"$(($str -split "eval:")[1] -f $(get-date).ToString())`"
+            Write-Verbose "Eval'd to: $out"
+        } else {
+            Write-Verbose "Config string |$str| was not eval'd"
+        }
+        return $out
+    }
+
+    function Get-PathTail ([string] $d1, [string] $d2) {
+        #codemagicthing
         [String]::Join('',$($d2[$($d1.length)..$($d2.length-1)],$d1[$($d2.length)..$($d1.length-1)])[$d1 -gt $d2])
     }
 
     # Generates a keyname without doubles
     $nameCounts = @{}
-    function Gen-Key-Name ( $keys, $token ) {
+    function Gen-Key-Name ( $keys, [System.Tuple] $token ) {
         $possiblename = ''
         do {
             Write-Debug $token.Item2
@@ -449,7 +447,7 @@ $JobFunctions = {
         if (test-path $filenameOUT) {} else {
             New-Item -Force $filenameOUT | Out-Null
         }
-        $content | Out-File -force -Encoding ASCII $filenameOUT
+        $content | Out-File -force -Encoding ascii $filenameOUT
         Write-Verbose "Written out to $filenameOUT"
         
         # Return name of sanitised file for use by the keylist
@@ -470,7 +468,9 @@ $JobFunctions = {
         Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
         # Add first line to show sanitation //todo this doesn't really work :/
-        $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
+        $header = eval-config-string $SanitisedFileFirstLine
+        $content = $header + $content
+        write-host $content
         return $content
     }
     
