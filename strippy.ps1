@@ -105,7 +105,7 @@ param (
     # Specifies a config file to use rather than the default local file or no file at all.
     [String] $Config,
     # How threaded can this process become?
-    [int] $MaxThreads
+    [int] $MaxThreads = 5
 )
 
 # Special Variables: (Not overwritten by config files)
@@ -408,7 +408,7 @@ $JobFunctions = {
 
     # Generates a keyname without doubles
     $nameCounts = @{}
-    function Gen-Key-Name ( $keys, [System.Tuple] $token ) {
+    function Gen-Key-Name ( $keys, $token ) {
         $possiblename = ''
         do {
             Write-Debug $token.Item2
@@ -432,7 +432,7 @@ $JobFunctions = {
             $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
             $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
             if ($rootFolder) {
-                Write-verbose "Sanitising a folder, foldername is $rootFolder"
+                Write-Verbose "Sanitising a folder, foldername is $rootFolder"
                 $locality = Get-PathTail $(Split-Path $file) $rootFolder
                 Write-Verbose "File is $locality from the root folder"
                 $filenameOUT = Join-Path $OutputFolder $locality 
@@ -472,7 +472,6 @@ $JobFunctions = {
         # Add first line to show sanitation //todo this doesn't really work :/
         $header = eval-config-string $SanitisedFileFirstLine
         $content = $header + $content
-        write-host $content
         return $content
     }
     
@@ -578,7 +577,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
             Write-Verbose "Loaded in content of $file"
 
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
-            write-verbose "Sanitised content of $file"
+            Write-Verbose "Sanitised content of $file"
 
             $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder $inPlace
             Write-Verbose "Exported $file to $exportedFileName"
@@ -589,7 +588,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads
-    write-verbose "Sanitising jobs are finished. Files should be exported"
+    Write-Verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
     $jobs = Get-Job -State Completed
@@ -646,6 +645,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                 if ($jobQ.Count -eq 0) {return}
                 $j = $jobQ.Dequeue()
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
+                Write-Verbose "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
         }
 
@@ -689,7 +689,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
 
     # Use Scout stripper to start looking for the keys in each file
     $keylists = Scout-Stripper $files $flags $rootFolder
-    Write-verbose "finished finding keys"
+    Write-Verbose "finished finding keys"
 
     # Add potentially imported keys to the list of keys
     if ($importedKeys) { [array]$keylists += $importedKeys }
@@ -700,7 +700,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
 
     # Sanitise the files
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
-    Write-verbose "Finished sanitising and exporting files"
+    Write-Verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
 }
@@ -741,7 +741,7 @@ if (-not $configUsed -and -not $SelfContained) {
         }
 
     } catch {
-        write-verbose "Could not find a local config file"
+        Write-Verbose "Could not find a local config file"
     }
 }
 
@@ -773,7 +773,7 @@ if ( $KeyFile ) {
     Write-Verbose "Checking the KeyFile"
     if ( Test-Path $KeyFile ) {
         $kf = Get-Item $KeyFile
-        write-verbose "Key File exists and is: '$kf'"
+        Write-Verbose "Key File exists and is: '$kf'"
     } else {
         Write-Error "Error: $KeyFile could not be found"
         exit -1
