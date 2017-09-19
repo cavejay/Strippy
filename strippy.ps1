@@ -409,17 +409,18 @@ $JobFunctions = {
     # Generates a keyname without doubles
     $nameCounts = @{}
     function Gen-Key-Name ( $keys, $token ) {
-        $possiblename = ''
+        $possiblename = ''; $count = 0
         do {
             Write-Debug $token.Item2
             if ( -not $nameCounts.ContainsKey($token.Item2) ) {
+                # If we've not heard of this key before, make it
                 $nameCounts[$token.Item2] = 0
             }
     
-            $nameCounts[$token.Item2]++
+            $nameCounts[$token.Item2]++ # increment our count for this key 
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
-            Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $keys[$possiblename] )'"
         } while ( $keys[$possiblename] -ne $null )
+        Write-Verbose "Had to loop $count times to find new name of '$possiblename'"
         return $possiblename
     }
 
@@ -533,7 +534,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $vPref)
-            $VerbosePreference = $vPref
+            # $VerbosePreference = $vPref
 
             Find-Keys $file $flags $IgnoredStrings
             Write-Verbose "Found all the keys in $file"
@@ -570,8 +571,8 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
             PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $inPlace, $vPref)
-            $VerbosePreference = $vPref
-            $DebugPreference = $vPref
+            # $VerbosePreference = $vPref
+            # $DebugPreference = $vPref
 
             $content = [IO.file]::ReadAllText($file)
             Write-Verbose "Loaded in content of $file"
@@ -620,7 +621,10 @@ function Merging-Stripper ([Array] $keylists) {
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
             Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100)
+
+            # if new, merged keylist does not contain the key
             if ($output.values -notcontains $keylist.$Key) {
+                # Generate a new name for the key and add it to the merged keylist (output)
                 $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
                 $output.$newname = $keylist.$key
             }
@@ -665,6 +669,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                     Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
+                    Write-Verbose "Job named '$($Job.name)' finished"
                 }
             }
         }
