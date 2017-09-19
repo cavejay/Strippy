@@ -103,7 +103,9 @@ param (
     # Archive the folder or file after sanitising it
     # [switch] $zip, 
     # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $Config
+    [String] $Config,
+    # How threaded can this process become?
+    [int] $MaxThreads
 )
 
 # Special Variables: (Not overwritten by config files)
@@ -540,7 +542,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
         $ArgumentList = $file,$flags,$IgnoredStrings,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q 5
+    Manage-Job $q $MaxThreads
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -586,7 +588,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q 5
+    Manage-Job $q $MaxThreads
     write-verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
@@ -668,7 +670,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
         }
 
         ## Setting for loop processing speed
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 1000
     }
 
     ForEach ($Job in Get-Job) {
