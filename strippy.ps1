@@ -460,9 +460,10 @@ $JobFunctions = {
     ## Sanitises a file and stores sanitised data in a key
     function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
         Write-Verbose "Sanitising file: $filename"
-        $count = 0
+
         # Process file for items found using tokens in descending order of length. 
         # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
+        $count = 0
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
@@ -487,7 +488,7 @@ $JobFunctions = {
         # Process file for tokens
         $count = 1
         foreach ( $token in $flags ) {
-            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.Count)*100)
+            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.count)*100)
             $pattern = $token.Item1
             Write-Verbose "Using '$pattern' to find matches"
             $matches = [regex]::matches($f, $pattern)
@@ -643,15 +644,6 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
     # While there are still jobs to deploy or there are jobs still running
     While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
         $JobsRunning = $(Get-Job -State 'Running').count
-        
-        if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
-            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
-                if ($jobQ.Count -eq 0) {return}
-                $j = $jobQ.Dequeue()
-                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
-                Write-Verbose "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
-            }
-        }
 
         # For each job started and each child of those jobs
         ForEach ($Job in Get-Job) {
@@ -662,15 +654,31 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
                     Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
+                    Write-Verbose "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
                 ## If this child is complete then stop writing progress
-                If ($Progress.PercentComplete -eq 100){
+                If ($Progress.PercentComplete -eq 100 -or $Progress.PercentComplete -eq -1){
+                    Write-Verbose "Job '$($Job.name)' has finished"
+
                     Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
-                    Write-Verbose "Job named '$($Job.name)' finished"
                 }
+            }
+        }
+        
+        if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
+            Write-Verbose "We've completed some jobs, we need to start $($MaxJobs-$JobsRunning) more"
+            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
+                Write-Verbose "iteration: $_ of $($MaxJobs-$JobsRunning)"
+                if ($jobQ.Count -eq 0) {
+                    Write-Verbose "There are 0 jobs left. Skipping the loop"
+                    return
+                }
+                $j = $jobQ.Dequeue()
+                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
+                Write-Verbose "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
         }
 
