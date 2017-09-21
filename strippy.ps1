@@ -147,7 +147,6 @@ if ( $Verbose -and -not $Silent) {
 }
 
 # Check if we're _just_ creating a default config file
-<<<<<<< HEAD
 # if ( $MakeConfig ) {
 #     $confloc = Join-Path $( Get-Location ) strippy.conf
 #     $defaultConfig = '{
@@ -202,61 +201,6 @@ if ( $Verbose -and -not $Silent) {
 #     Write-Information "Generated config file: $confloc"
 #     exit 0
 # }
-=======
-if ( $MakeConfig ) {
-    $confloc = "$( Get-Location )\strippyConfig.json"
-    $defaultConfig = '{
-    "_Comment": "These are the defaults. You should alter them. Please go do",
-    "_version": 0.1,
-    "UseMe": %useme%,
-    "IgnoredStrings": [%ignoredstrings%],
-    "SanitisedFileFirstLine": "%logfirstline%",
-    "KeyListFirstline": "%keyfirstline%",
-
-    "KeyFile": "",
-    "indicators": [
-        %indicators%
-    ]
-}
-'
-    if ( $SelfContained ) {
-        Write-Verbose "In single file mode. Exporting most of the config from file"
-        # In here we export all the variables we've set above and such.
-        $defaultConfig = $defaultConfig -replace '%useme%', "false"
-        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
-        $defaultConfig = $defaultConfig -replace '%logfirstline%', "$SanitisedFileFirstline"
-        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "$keylistfirstline"
-        $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
-        $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
-    } else {
-        # Fill areas of the default config
-        $defaultConfig = $defaultConfig -replace '%useme%', "true"
-        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
-        $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at {0}``n==``n``n"
-        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at {0}.``n"
-        $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
-        [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
-        [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
-    }
-
-    # Check to make sure we're not overwriting someone's config file
-    if ( Test-Path $( $confloc ) ) {
-        Write-Information "A config file already exists. Would you like to overwrite it with the default?"
-        $ans = Read-Host "y/n> (n) "
-        if ( $ans -ne 'y' ) {
-            Write-Information "Didn't overwrite the current config file"
-            exit 0
-        } else {
-            Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
-            Write-Information "$([IO.file]::ReadAllText($confloc))"
-        }
-    }
-
-    $defaultConfig | Out-File -Encoding ascii $confloc
-    Write-Information "Generated config file: $confloc"
-    exit 0
-}
->>>>>>> master
 
 # Usage
 if ( $File -eq "" ) {
@@ -364,7 +308,6 @@ function proc-config-file ( $cf ) {
             }
         }
 
-<<<<<<< HEAD
         switch ($stages[$stage]) {
             'UseMe' {
 
@@ -373,16 +316,6 @@ function proc-config-file ( $cf ) {
 
             }
             'Rules' {
-=======
-    Write-Verbose "Attemping JSON -> PSObject transform"
-    # turn into PS object
-    try {
-        $c = ConvertFrom-Json $cf -ErrorAction Stop
-    } catch {
-        Write-Error "Config file error:`n$_"
-        exit -1
-    }
->>>>>>> master
 
             }
             Default {
