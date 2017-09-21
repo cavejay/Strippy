@@ -248,7 +248,7 @@ function Clean-Up () {
     $DebugPreference = $oldDebugPref
     $InformationPreference = $oldInfoPref
     Set-Location $PWD
-    exit
+    exit 0
 }
 
 # Print only when not printing verbose comments
@@ -543,7 +543,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
         $ArgumentList = $file,$flags,$IgnoredStrings,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q $MaxThreads
+    Manage-Job $q $MaxThreads 1 35
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -589,7 +589,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q $MaxThreads
+    Manage-Job $q $MaxThreads 60 99
     Write-Verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
@@ -621,26 +621,33 @@ function Merging-Stripper ([Array] $keylists) {
     $currentKey = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
-            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100)
+            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId 1
 
             # if new, merged keylist does not contain the key
             if ($output.values -notcontains $keylist.$Key) {
                 # Generate a new name for the key and add it to the merged keylist (output)
                 $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
                 $output.$newname = $keylist.$key
+            } else {
+                Write-Verbose "Key $($keylist.$Key) already has name of $key"
             }
         }
+        $perc = ($keylists.IndexOf($keylist)+1)/($keylists.count)
+        write-verbose "Done $($perc*100)% of keylists"
+        Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $($perc*(60-35)+35)
     }
-    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -Completed
+    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId 1 -Completed
 
     return $output
 }
 
-function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
+function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $ProgressStart, [int] $ProgressEnd) {
     Write-Verbose "Clearing all background jobs (again in-case)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
 
+    $totalJobs = $jobQ.count
+    $ProgressInterval = ($ProgressEnd-$ProgressStart)/$totalJobs
     # While there are still jobs to deploy or there are jobs still running
     While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
         $JobsRunning = $(Get-Job -State 'Running').count
@@ -653,7 +660,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                 
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
-                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1
                     Write-Verbose "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
@@ -661,7 +668,11 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                 If ($Progress.PercentComplete -eq 100 -or $Progress.PercentComplete -eq -1){
                     Write-Verbose "Job '$($Job.name)' has finished"
 
-                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -Complete
+                    #Update total progress
+                    $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
+                    Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $perc
+
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1 -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
                 }
@@ -686,24 +697,26 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
         Start-Sleep -Milliseconds 1000
     }
 
+    # Ensure all progress bars are cleared
     ForEach ($Job in Get-Job) {
-        ForEach ($Child in $Job.ChildJobs) {
-            Write-Progress -Activity $Job.Name -ID $Job.ID  -Complete
-        }
-    }       
+        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId 1 -Complete
+    }    
 }
 
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Clearing background jobs" -PercentComplete 0
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
     Write-Debug "removed all background jobs"
-
+    
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
     $keylists = Scout-Stripper $files $flags $rootFolder
     Write-Verbose "finished finding keys"
-
+    
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
     if ($importedKeys) { [array]$keylists += $importedKeys }
 
@@ -711,6 +724,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     $finalKeyList = Merging-Stripper $keylists
     Write-Verbose "Finished merging keylists"
 
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
     Write-Verbose "Finished sanitising and exporting files"
@@ -880,11 +894,14 @@ if ($AlternateOutputFolder) {
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
 
+Write-Progress -Activity "Sanitising" -Id 1 -Status "Outputting Keylist" -PercentComplete 99
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
-
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
 if (-not $Silent) {$finalKeyList}
 
+Write-Progress -Activity "Sanitising" -Id 1 -Status "Finished" -PercentComplete 100
+Start-Sleep 1
+Write-Progress -Activity "Sanitising" -Id 1 -Completed
 Clean-Up
