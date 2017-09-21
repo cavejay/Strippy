@@ -103,7 +103,9 @@ param (
     # Archive the folder or file after sanitising it
     # [switch] $zip, 
     # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $Config
+    [String] $Config,
+    # How threaded can this process become?
+    [int] $MaxThreads = 5
 )
 
 # Special Variables: (Not overwritten by config files)
@@ -112,10 +114,10 @@ param (
 $SelfContained = $false
 
 ## Variables: (Over written by any config file)
-IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
-SanitisedFileFirstline = "This file was Sanitised at $( $(Get-Date).toString() ).`n==`n`n"
-KeyListFirstline = "This keylist was created at $( $(Get-Date).toString() ).`n"
-KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
+$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
+$SanitisedFileFirstline = "This file was Sanitised at {0}.`n==`n`n"
+$KeyListFirstline = "This keylist was created at {0}.`n"
+$KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
@@ -145,6 +147,7 @@ if ( $Verbose -and -not $Silent) {
 }
 
 # Check if we're _just_ creating a default config file
+<<<<<<< HEAD
 # if ( $MakeConfig ) {
 #     $confloc = Join-Path $( Get-Location ) strippy.conf
 #     $defaultConfig = '{
@@ -199,6 +202,61 @@ if ( $Verbose -and -not $Silent) {
 #     Write-Information "Generated config file: $confloc"
 #     exit 0
 # }
+=======
+if ( $MakeConfig ) {
+    $confloc = "$( Get-Location )\strippyConfig.json"
+    $defaultConfig = '{
+    "_Comment": "These are the defaults. You should alter them. Please go do",
+    "_version": 0.1,
+    "UseMe": %useme%,
+    "IgnoredStrings": [%ignoredstrings%],
+    "SanitisedFileFirstLine": "%logfirstline%",
+    "KeyListFirstline": "%keyfirstline%",
+
+    "KeyFile": "",
+    "indicators": [
+        %indicators%
+    ]
+}
+'
+    if ( $SelfContained ) {
+        Write-Verbose "In single file mode. Exporting most of the config from file"
+        # In here we export all the variables we've set above and such.
+        $defaultConfig = $defaultConfig -replace '%useme%', "false"
+        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
+        $defaultConfig = $defaultConfig -replace '%logfirstline%', "$SanitisedFileFirstline"
+        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "$keylistfirstline"
+        $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
+        $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
+    } else {
+        # Fill areas of the default config
+        $defaultConfig = $defaultConfig -replace '%useme%', "true"
+        $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
+        $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at {0}``n==``n``n"
+        $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at {0}.``n"
+        $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
+        [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
+        [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
+    }
+
+    # Check to make sure we're not overwriting someone's config file
+    if ( Test-Path $( $confloc ) ) {
+        Write-Information "A config file already exists. Would you like to overwrite it with the default?"
+        $ans = Read-Host "y/n> (n) "
+        if ( $ans -ne 'y' ) {
+            Write-Information "Didn't overwrite the current config file"
+            exit 0
+        } else {
+            Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
+            Write-Information "$([IO.file]::ReadAllText($confloc))"
+        }
+    }
+
+    $defaultConfig | Out-File -Encoding ascii $confloc
+    Write-Information "Generated config file: $confloc"
+    exit 0
+}
+>>>>>>> master
 
 # Usage
 if ( $File -eq "" ) {
@@ -215,19 +273,8 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
-function eval-config-string ([string] $str) {
-    $out = "$str"
-    if (($str[0..4] -join '') -eq "eval:") {
-        Write-Verbose "config string |$str| needs to be eval'd"
-        $out = $ExecutionContext.InvokeCommand.ExpandString(($str -split "eval:")[1])
-        Write-Verbose "Eval'd to: $out"
-    } else {
-        Write-Verbose "Config string |$str| was not eval'd"
-    }
-    return $out
-}
-
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
+    . $JobFunctions # to gain access to eval-config-string
     $kf = join-path $PWD "KeyList.txt"
     
     # We have Keys?
@@ -257,7 +304,7 @@ function Clean-Up () {
     $DebugPreference = $oldDebugPref
     $InformationPreference = $oldInfoPref
     Set-Location $PWD
-    exit
+    exit 0
 }
 
 # Print only when not printing verbose comments
@@ -317,6 +364,7 @@ function proc-config-file ( $cf ) {
             }
         }
 
+<<<<<<< HEAD
         switch ($stages[$stage]) {
             'UseMe' {
 
@@ -325,6 +373,16 @@ function proc-config-file ( $cf ) {
 
             }
             'Rules' {
+=======
+    Write-Verbose "Attemping JSON -> PSObject transform"
+    # turn into PS object
+    try {
+        $c = ConvertFrom-Json $cf -ErrorAction Stop
+    } catch {
+        Write-Error "Config file error:`n$_"
+        exit -1
+    }
+>>>>>>> master
 
             }
             Default {
@@ -431,24 +489,38 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
-    function Get-PathTail ($d1, $d2) {
+    function eval-config-string ([string] $str) {
+        $out = "$str"
+        if (($str[0..4] -join '') -eq "eval:") {
+            Write-Verbose "config string |$str| needs to be eval'd"
+            $out = Invoke-Expression `"$(($str -split "eval:")[1] -f $(get-date).ToString())`"
+            Write-Verbose "Eval'd to: $out"
+        } else {
+            Write-Verbose "Config string |$str| was not eval'd"
+        }
+        return $out
+    }
+
+    function Get-PathTail ([string] $d1, [string] $d2) {
+        #codemagicthing
         [String]::Join('',$($d2[$($d1.length)..$($d2.length-1)],$d1[$($d2.length)..$($d1.length-1)])[$d1 -gt $d2])
     }
 
     # Generates a keyname without doubles
     $nameCounts = @{}
     function Gen-Key-Name ( $keys, $token ) {
-        $possiblename = ''
+        $possiblename = ''; $count = 0
         do {
             Write-Debug $token.Item2
             if ( -not $nameCounts.ContainsKey($token.Item2) ) {
+                # If we've not heard of this key before, make it
                 $nameCounts[$token.Item2] = 0
             }
     
-            $nameCounts[$token.Item2]++
+            $nameCounts[$token.Item2]++ # increment our count for this key 
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
-            Write-Verbose "PossibleName is $possiblename does it exist? :: '$( $keys[$possiblename] )'"
         } while ( $keys[$possiblename] -ne $null )
+        Write-Verbose "Had to loop $count times to find new name of '$possiblename'"
         return $possiblename
     }
 
@@ -461,7 +533,7 @@ $JobFunctions = {
             $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
             $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
             if ($rootFolder) {
-                Write-verbose "Sanitising a folder, foldername is $rootFolder"
+                Write-Verbose "Sanitising a folder, foldername is $rootFolder"
                 $locality = Get-PathTail $(Split-Path $file) $rootFolder
                 Write-Verbose "File is $locality from the root folder"
                 $filenameOUT = Join-Path $OutputFolder $locality 
@@ -478,7 +550,7 @@ $JobFunctions = {
         if (test-path $filenameOUT) {} else {
             New-Item -Force $filenameOUT | Out-Null
         }
-        $content | Out-File -force -Encoding ASCII $filenameOUT
+        $content | Out-File -force -Encoding ascii $filenameOUT
         Write-Verbose "Written out to $filenameOUT"
         
         # Return name of sanitised file for use by the keylist
@@ -488,9 +560,10 @@ $JobFunctions = {
     ## Sanitises a file and stores sanitised data in a key
     function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
         Write-Verbose "Sanitising file: $filename"
-        $count = 0
+
         # Process file for items found using tokens in descending order of length. 
         # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
+        $count = 0
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
@@ -499,7 +572,8 @@ $JobFunctions = {
         Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
         # Add first line to show sanitation //todo this doesn't really work :/
-        $content = $ExecutionContext.InvokeCommand.ExpandString(($SanitisedFileFirstLine -split "eval:")[1]) + $content
+        $header = eval-config-string $SanitisedFileFirstLine
+        $content = $header + $content
         return $content
     }
     
@@ -514,7 +588,7 @@ $JobFunctions = {
         # Process file for tokens
         $count = 1
         foreach ( $token in $flags ) {
-            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.Count)*100)
+            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.count)*100)
             $pattern = $token.Item1
             Write-Verbose "Using '$pattern' to find matches"
             $matches = [regex]::matches($f, $pattern)
@@ -561,7 +635,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $vPref)
-            $VerbosePreference = $vPref
+            # $VerbosePreference = $vPref
 
             Find-Keys $file $flags $IgnoredStrings
             Write-Verbose "Found all the keys in $file"
@@ -569,7 +643,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
         $ArgumentList = $file,$flags,$IgnoredStrings,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q 5
+    Manage-Job $q $MaxThreads 1 35
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -598,14 +672,14 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
             PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $inPlace, $vPref)
-            $VerbosePreference = $vPref
-            $DebugPreference = $vPref
+            # $VerbosePreference = $vPref
+            # $DebugPreference = $vPref
 
             $content = [IO.file]::ReadAllText($file)
             Write-Verbose "Loaded in content of $file"
 
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
-            write-verbose "Sanitised content of $file"
+            Write-Verbose "Sanitised content of $file"
 
             $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder $inPlace
             Write-Verbose "Exported $file to $exportedFileName"
@@ -615,8 +689,8 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q 5
-    write-verbose "Sanitising jobs are finished. Files should be exported"
+    Manage-Job $q $MaxThreads 60 99
+    Write-Verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
     $jobs = Get-Job -State Completed
@@ -647,34 +721,36 @@ function Merging-Stripper ([Array] $keylists) {
     $currentKey = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
-            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100)
+            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId 1
+
+            # if new, merged keylist does not contain the key
             if ($output.values -notcontains $keylist.$Key) {
+                # Generate a new name for the key and add it to the merged keylist (output)
                 $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
                 $output.$newname = $keylist.$key
+            } else {
+                Write-Verbose "Key $($keylist.$Key) already has name of $key"
             }
         }
+        $perc = ($keylists.IndexOf($keylist)+1)/($keylists.count)
+        write-verbose "Done $($perc*100)% of keylists"
+        Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $($perc*(60-35)+35)
     }
-    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -Completed
+    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId 1 -Completed
 
     return $output
 }
 
-function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
+function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $ProgressStart, [int] $ProgressEnd) {
     Write-Verbose "Clearing all background jobs (again in-case)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
 
+    $totalJobs = $jobQ.count
+    $ProgressInterval = ($ProgressEnd-$ProgressStart)/$totalJobs
     # While there are still jobs to deploy or there are jobs still running
     While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
         $JobsRunning = $(Get-Job -State 'Running').count
-        
-        if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
-            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
-                if ($jobQ.Count -eq 0) {return}
-                $j = $jobQ.Dequeue()
-                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
-            }
-        }
 
         # For each job started and each child of those jobs
         ForEach ($Job in Get-Job) {
@@ -684,40 +760,63 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs) {
                 
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
-                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1
+                    Write-Verbose "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
                 ## If this child is complete then stop writing progress
-                If ($Progress.PercentComplete -eq 100){
-                    Write-Progress  -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -Complete
+                If ($Progress.PercentComplete -eq 100 -or $Progress.PercentComplete -eq -1){
+                    Write-Verbose "Job '$($Job.name)' has finished"
+
+                    #Update total progress
+                    $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
+                    Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $perc
+
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1 -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
                 }
             }
         }
+        
+        if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
+            Write-Verbose "We've completed some jobs, we need to start $($MaxJobs-$JobsRunning) more"
+            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
+                Write-Verbose "iteration: $_ of $($MaxJobs-$JobsRunning)"
+                if ($jobQ.Count -eq 0) {
+                    Write-Verbose "There are 0 jobs left. Skipping the loop"
+                    return
+                }
+                $j = $jobQ.Dequeue()
+                Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
+                Write-Verbose "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
+            }
+        }
 
         ## Setting for loop processing speed
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 1000
     }
 
+    # Ensure all progress bars are cleared
     ForEach ($Job in Get-Job) {
-        ForEach ($Child in $Job.ChildJobs) {
-            Write-Progress -Activity $Job.Name -ID $Job.ID  -Complete
-        }
-    }       
+        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId 1 -Complete
+    }    
 }
 
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Clearing background jobs" -PercentComplete 0
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
     Write-Debug "removed all background jobs"
-
+    
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
     $keylists = Scout-Stripper $files $flags $rootFolder
-    Write-verbose "finished finding keys"
-
+    Write-Verbose "finished finding keys"
+    
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
     if ($importedKeys) { [array]$keylists += $importedKeys }
 
@@ -725,9 +824,10 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     $finalKeyList = Merging-Stripper $keylists
     Write-Verbose "Finished merging keylists"
 
+    Write-Progress -Activity "Sanitising" -Id 1 -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
-    Write-verbose "Finished sanitising and exporting files"
+    Write-Verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
 }
@@ -767,7 +867,7 @@ if (-not $configUsed -and -not $SelfContained) {
         }
 
     } catch {
-        write-verbose "Could not find a local config file"
+        Write-Verbose "Could not find a local config file"
     }
 }
 
@@ -800,7 +900,7 @@ if ( $KeyFile ) {
     Write-Verbose "Checking the KeyFile"
     if ( Test-Path $KeyFile ) {
         $kf = Get-Item $KeyFile
-        write-verbose "Key File exists and is: '$kf'"
+        Write-Verbose "Key File exists and is: '$kf'"
     } else {
         Write-Error "Error: $KeyFile could not be found"
         exit -1
@@ -894,10 +994,14 @@ if ($AlternateOutputFolder) {
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
 
+Write-Progress -Activity "Sanitising" -Id 1 -Status "Outputting Keylist" -PercentComplete 99
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
 if (-not $Silent) {$finalKeyList}
 
+Write-Progress -Activity "Sanitising" -Id 1 -Status "Finished" -PercentComplete 100
+Start-Sleep 1
+Write-Progress -Activity "Sanitising" -Id 1 -Completed
 Clean-Up

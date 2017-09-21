@@ -31,11 +31,10 @@ Below is an example of a config file that should handle most, if not all of the 
 {
     "_Comment": "This file contains rules to sanitise most log files created by DCRUM.",
     "UseMe": true,
-    "IgnoredStrings": ["/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications"],
-    "SanitisedFileFirstLine": "eval:This file was Sanitised at `$( `$(Get-Date).toString() ).`n==`n`n",
-    "KeyListFirstline": "eval:This keylist was created at `$( `$(Get-Date).toString() ).`n",
+    "IgnoredStrings": ["/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications",""],
+    "SanitisedFileFirstLine": "eval:This file was Sanitised at {0}.`r`n==`r`n`r`n",
+    "KeyListFirstline": "eval:This keylist was created at {0}.`r`n",
 
-    "KeyFile": "",
     "indicators": [
         ["Some Regex String here", "Replacement here"],
         ["((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", "Address"],
@@ -45,6 +44,7 @@ Below is an example of a config file that should handle most, if not all of the 
         ["Key User Report : section (.*?) - ", "Username"],
         ["Key User Report : section .*? - (.*?) - IP: ", "Hostname"],
         ["Key User Report : section .*? - .*? - IP: (.*?)", "Address"],
+        ["Received update event \(member (.*?),", "Address"],
         ["user:(.*?)$", "Username"],
         ["Using CSS at address (.*)\.", "Address"],
         ["CSSAuthManager - connecting to CSS server ... connection with (.*?):\d\d+ established", "Hostname"],
