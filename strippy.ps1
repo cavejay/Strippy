@@ -59,18 +59,14 @@
 
 # Todo
 # Dealing with selections of files a la "server.*.log" or similar
-# Make -Silent print output to a file? 
+# Make -Silent print output to a file?
 # Have option for diagnotics file or similar that shows how many times each rule was hit
 # Print/Sanitising sometimes breaks?
-# Keys found at the end of lines contain a '...' - not all the time though?
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# Nicer gui for above showing how far through each process/file is.
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
-# Update the config file to use a nicer ini alternative. (Branch for this now)
 # More intellient capitalisation resolution.
-# catch all for empty tokens
 # Move from jobs to runspaces?
 
 <# Maintenance Todo list
@@ -91,19 +87,19 @@ param (
     # Creates a barebones strippy.conf file for the user to fill edit
     [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeyListOutput
-    [String] $keyout, 
+    [String] $ko, 
     # Specifies an alternate name and path for the keylist file
-    [String] $AlternateKeyListOutput = $keyout,
+    [String] $AlternateKeyListOutput = $ko,
     # A shortcut for -AlternateOutputFolder 
-    [String] $out, 
+    [String] $o, 
     # Specifies an alternate path or file for the sanitised file
-    [String] $AlternateOutputFolder = $out, 
+    [String] $AlternateOutputFolder = $o, 
     # Specifies a previously generated keylist file to import keys from for this sanitisation
     [String] $KeyFile, 
     # Archive the folder or file after sanitising it
     # [switch] $zip, 
     # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $Config,
+    [String] $ConfigFile,
     # How threaded can this process become?
     [int] $MaxThreads = 5
 )
@@ -114,10 +110,11 @@ param (
 $SelfContained = $false
 
 ## Variables: (Over written by any config file)
-$IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
-$SanitisedFileFirstline = "This file was Sanitised at {0}.`n==`n`n"
-$KeyListFirstline = "This keylist was created at {0}.`n"
-$KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
+$Config = @{"origin"="default"}
+$Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
+$Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`n==`n`n"
+$Config.KeyListFirstline = "This keylist was created at {0}.`n"
+$Config.KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
@@ -126,8 +123,7 @@ $KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
 $PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
 
 # Flags
-# usernames, hostnames, ip addresses
-flags = New-Object System.Collections.ArrayList
+$Config.flags = New-Object System.Collections.ArrayList
 # Added to every list of flags to cover IPs and UNC's
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
@@ -145,62 +141,6 @@ if ( $Verbose -and -not $Silent) {
     $VerbosePreference = 'Continue'
     $DebugPreference = 'Continue'
 }
-
-# Check if we're _just_ creating a default config file
-# if ( $MakeConfig ) {
-#     $confloc = Join-Path $( Get-Location ) strippy.conf
-#     $defaultConfig = '{
-#     "_Comment": "These are the defaults. You should alter them. Please go do",
-#     "_version": 0.1,
-#     "UseMe": %useme%,
-#     "IgnoredStrings": [%ignoredstrings%],
-#     "SanitisedFileFirstLine": "%logfirstline%",
-#     "KeyListFirstline": "%keyfirstline%",
-
-#     "KeyFile": "",
-#     "indicators": [
-#         %indicators%
-#     ]
-# }
-# '
-#     if ( $SelfContained ) {
-#         Write-Verbose "In single file mode. Exporting most of the config from file"
-#         # In here we export all the variables we've set above and such.
-#         $defaultConfig = $defaultConfig -replace '%useme%', "false"
-#         $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"$($IgnoredStrings -join '", "')`""
-#         $defaultConfig = $defaultConfig -replace '%logfirstline%', ""
-#         $defaultConfig = $defaultConfig -replace '%keyfirstline%', ""
-#         $t_ = $flags | Foreach-Object {"[`"$($_.Item1)`", `"$($_.Item2)`"]"}
-#         $defaultConfig = $defaultConfig -replace '%indicators%', $($t_ -join ', ')
-#     } else {
-#         # Fill areas of the default config
-#         $defaultConfig = $defaultConfig -replace '%useme%', "true"
-#         $defaultConfig = $defaultConfig -replace '%ignoredstrings%', "`"/0:0:0:0:0:0:0:0`", `"0.0.0.0`", `"127.0.0.1`", `"name`", `"applications`""
-#         $defaultConfig = $defaultConfig -replace '%logfirstline%', "This file was Sanitised at %date%``n==``n``n"
-#         $defaultConfig = $defaultConfig -replace '%keyfirstline%', "This keylist was created at %date%.``n"
-#         $defaultConfig = $defaultConfig -replace '%indicators%', "[`"Some Regex String here`", `"Replacement here`"], 
-#         [`"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]`", `"Address`"],
-#         [`"\\\\([\w\-.]*?)\\`", `"Hostname`"]"
-#     }
-
-
-#     # Check to make sure we're not overwriting someone's config file
-#     if ( Test-Path $( $confloc ) ) {
-#         Write-Information "A config file already exists. Would you like to overwrite it with the default?"
-#         $ans = Read-Host "y/n> (n) "
-#         if ( $ans -ne 'y' ) {
-#             Write-Information "Didn't overwrite the current config file"
-#             exit 0
-#         } else {
-#             Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
-#             Write-Information "$([IO.file]::ReadAllText($confloc))"
-#         }
-#     }
-
-#     $defaultConfig | Out-File -Encoding ascii $confloc
-#     Write-Information "Generated config file: $confloc"
-#     exit 0
-# }
 
 # Usage
 if ( $File -eq "" ) {
@@ -266,16 +206,19 @@ function write-when-normal {
 }
 
 ## Process Config file 
-function proc-config-file ( $cf ) {
+ function proc-config-file ( $cf ) {
     $stages = @('UseMe', 'Config', 'Rules')
+    $validLineKey = @('UseMe', 'IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename')
     $stage = 0; $lineNum = 0
 
     $config = @{}
 
-    ForEach ($line in $cf) {
+    $lines = $cf -split "`n"
+    ForEach ( $line in $lines ) {
         $lineNum++
+
         # Do some checks about the line we're on
-        if ($line -match "^\s*;") {
+        if ( $line -match "^\s*;" ) {
             write-verbose "skipped comment: $line"
             continue
         } elseif ($line -eq '') {
@@ -284,7 +227,7 @@ function proc-config-file ( $cf ) {
         }
 
         # Check if this is a header
-        if ($line -match "^\s*\[ [\w\s]* \].*$") {
+        if ( $line -match "^\s*\[ [\w\s]* \].*$" ) {
             # is it a valid header structure?
             $matches = [regex]::Matches($line, "^\s*\[ ([\w\s]*) \].*$")
             if ($matches.groups -and $matches.groups.length -gt 1) {} else {
@@ -294,10 +237,10 @@ function proc-config-file ( $cf ) {
             }
             $headerVal = $matches.groups[1].value
             # bump the stage if we found a valid header
-            if ($stages[$stage+1] -eq $headerVal) {
+            if ( $stages[$stage+1] -eq $headerVal ) {
                 Write-Verbose "Moving to $($stages[$stage+1]) due to line $linenum`: $line"
                 $stage++
-            } elseif ($stages -notcontains $headerVal) {
+            } elseif ( $stages -notcontains $headerVal ) {
                 Write-Verbose "Tried to move to stage '$headval' at the wrong time on line $linenum`: $line"
                 Write-Error "CONFIG: Valid head '$headerval' in the wrong position on line $linenum`: $line"
                 exit -1
@@ -306,17 +249,52 @@ function proc-config-file ( $cf ) {
                 Write-Error "CONFIG: Invalid header '$headerval' on line $linenum`: $line"
                 exit -1
             }
+            continue # if we're still here move to the next line
         }
 
-        switch ($stages[$stage]) {
-            'UseMe' {
+        # Check if this is a valid config line
+        if ( $line -match "^.*=.*$" ) {
+            $matches = [regex]::Matches($line, "^(.*?)=(.*)$")
+            if ( $matches.groups -and $matches.groups.length -ne 3 ) {
+                Write-Verbose "Invalid config line. not enough values"
+                Write-Error "CONFIG: Invalid config line. Incorrect format/grouping on line $linenum`: $line"
+                exit -1
+            }
+            $lineKey = $matches.groups[1].value
+            $lineValue = $matches.groups[2].value
+            # If we're not reading rules and we don't recognise the key, show a warning
+            if ( $stages[$stage] -ne "Rules" -and $validLineKey -notcontains $lineKey ) {
+                Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
+                Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
+            }
+        }
 
+        # Action lines based on stage
+        switch ( $stages[$stage] ) {
+            'UseMe' {
+                # Use a switch for easy adding if there's more
+                switch ( $lineKey ) {
+                    'UseMe' {
+                        $Config.UseMe = $lineValue -eq "true"
+                    }
+                    Default {
+                        Write-WArning "Unknown configuration setting '$lineKey' found on line $linenum`: $line"
+                    }
+                }
             }
             'Config' {
-
+                # Proc if its an array or bool
+                $Config[$lineKey] = $lineValue
+                Write-Verbose "Line $linenum stored: Setting: $lineKey, Value: $lineValue"
             }
             'Rules' {
-
+                # Need to validate keys and the like
+                if ( $line -match "^`".*`"=`".*`"$" ) {
+                    # Add the rule to the flags array
+                    $config.flags += [System.Tuple]::Create($lineKey[1..$($lineKey.length)],$lineKey[1..$($lineValue.length)])
+                } else {
+                    Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"'. It will not be processed."
+                }
             }
             Default {
                 Write-Error "CONFIG: Something went wrong on line $($lineNum): $line"
@@ -324,6 +302,11 @@ function proc-config-file ( $cf ) {
             }
         }
     }
+
+    Write-Verbose "config is here`n$($config | Out-String)`n`n"
+    Write-Verbose "Rules:`n$($config.flags)`n=="
+    $config.origin = $ConfigFile # store where the config is from
+    return $config
 }
 
 # Process a KeyFile
@@ -770,17 +753,16 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
 
 # Handle config loading
 $configUsed = $false
-if ( $Config ) {
+if ( $ConfigFile ) {
     try {
-        $tmp = Get-Item $Config
+        $tmp = Get-Item $ConfigFile
         $configText = [IO.file]::ReadAllText($tmp.FullName)
     } catch {
         Write-Error "Error: Could not load from Specified config file: $Config"
         exit -1
     }
     Write-Verbose "Processing specified Config file"
-    proc-config-file $configText
-    $configUsed = $true
+    $script:Config = proc-config-file $configText
     Write-Verbose "Finished Processing Config file"
 }
 
@@ -793,7 +775,7 @@ if (-not $configUsed -and -not $SelfContained) {
         # Check it has the UseMe field set to true before continuing
         if ( $configText -match 'UseMe\s*=\s*true' ) { # should probs test this
             Write-Verbose "Found local default config file to use, importing it's settings"
-            proc-config-file $configText
+            $Script:Config = proc-config-file $configText
             $configUsed = $true
         } else {
             Write-Verbose "Ignored local config file due to false or missing UseMe value."
@@ -822,7 +804,7 @@ y/n> (y) "
         exit 0;
     } else {
         # Use default flags mentioned in the thingy
-        $script:flags = $defaultFlags
+        $script:config.flags = $defaultFlags
     }
 }
 
