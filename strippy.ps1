@@ -50,8 +50,8 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.170907
-    Compatability: Powershell 3+
+    Version: 2.170926
+    Compatability: Powershell 5+
 
 .LINK
     https://github.com/cavejay/Strippy
@@ -68,6 +68,7 @@
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 # More intellient capitalisation resolution.
 # Move from jobs to runspaces?
+# Add support/warning for ps 4
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
@@ -76,32 +77,45 @@
 
 [CmdletBinding()]
 param (
+    # A shortcut for -File
+    [String] $f,
     # The File or Folder you wish to sanitise
-    [String] $File, 
-     # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
-    [Switch] $Silent,
+    [String] $File = $f,
+    # A shortcut for -Silent
+    [Switch] $si = $false,
+    # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
+    [Switch] $Silent = $si,
+    # A shortcut for -Recurse
+    [Switch] $r = $false,
     # Looks for log files throughout a directory tree rather than only in the first level
-    [Switch] $Recurse = $false, 
+    [Switch] $Recurse = $r,
+    # A shortcut for -InPlace
+    [Switch] $i = $false,
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    [switch] $InPlace = $false,
+    [Switch] $InPlace = $i,
     # Creates a barebones strippy.conf file for the user to fill edit
     [Switch] $MakeConfig, 
-    # A shortcut for -AlternateKeyListOutput
-    [String] $ko, 
+    # A shortcut for -AlternateKeylistOutput 
+    [String] $ko,
     # Specifies an alternate name and path for the keylist file
     [String] $AlternateKeyListOutput = $ko,
     # A shortcut for -AlternateOutputFolder 
     [String] $o, 
     # Specifies an alternate path or file for the sanitised file
     [String] $AlternateOutputFolder = $o, 
+    # A shortcut for -KeyFile
+    [String] $k,
     # Specifies a previously generated keylist file to import keys from for this sanitisation
-    [String] $KeyFile, 
+    [String] $KeyFile = $k, 
     # Archive the folder or file after sanitising it
     # [switch] $zip, 
+    [String] $c,
     # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $ConfigFile,
+    [String] $ConfigFile = $c,
+    # A shortcut for -MaxThreads
+    [int] $m = 5,
     # How threaded can this process become?
-    [int] $MaxThreads = 5
+    [int] $MaxThreads = $m
 )
 
 # Special Variables: (Not overwritten by config files)
@@ -211,9 +225,9 @@ function write-when-normal {
     $validLineKey = @('UseMe', 'IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename')
     $stage = 0; $lineNum = 0
 
-    $config = @{}
+    $config = @{flags=@()}
 
-    $lines = $cf -split "`n"
+    $lines = $cf -split "`r?`n"
     ForEach ( $line in $lines ) {
         $lineNum++
 
@@ -278,7 +292,7 @@ function write-when-normal {
                         $Config.UseMe = $lineValue -eq "true"
                     }
                     Default {
-                        Write-WArning "Unknown configuration setting '$lineKey' found on line $linenum`: $line"
+                        Write-Warning "Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
                 }
             }
@@ -289,11 +303,17 @@ function write-when-normal {
             }
             'Rules' {
                 # Need to validate keys and the like
-                if ( $line -match "^`".*`"=`".*`"$" ) {
+                if ( $line -match '^".*"=".*"$' ) {
+                    # re-find the key/value incase there are '=' in the key
+                    $matches = [regex]::Matches($line, '^"(.*?)"="(.*)"$')
+                    $lineKey = $matches.groups[1].value
+                    $lineValue = $matches.groups[2].value
+
                     # Add the rule to the flags array
-                    $config.flags += [System.Tuple]::Create($lineKey[1..$($lineKey.length)],$lineKey[1..$($lineValue.length)])
+                    $config.flags += [System.Tuple]::Create($lineKey,$lineValue)
                 } else {
-                    Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"'. It will not be processed."
+                    Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
+                    Found as Key: |$lineKey| & Value: |$lineValue|"
                 }
             }
             Default {
@@ -304,7 +324,8 @@ function write-when-normal {
     }
 
     Write-Verbose "config is here`n$($config | Out-String)`n`n"
-    Write-Verbose "Rules:`n$($config.flags)`n=="
+    Write-host "Flags"
+    $config.flags | % { Write-host "$($_.Item1)->$($_.Item2)" }
     $config.origin = $ConfigFile # store where the config is from
     return $config
 }
@@ -418,6 +439,7 @@ $JobFunctions = {
     }
 
     function Get-PathTail ([string] $d1, [string] $d2) {
+        if ($d1 -eq $d2) {return split-Path -Leaf $d1}
         #codemagicthing
         [String]::Join('',$($d2[$($d1.length)..$($d2.length-1)],$d1[$($d2.length)..$($d1.length-1)])[$d1 -gt $d2])
     }
@@ -556,7 +578,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
             Find-Keys $file $flags $IgnoredStrings
             Write-Verbose "Found all the keys in $file"
         } 
-        $ArgumentList = $file,$flags,$IgnoredStrings,$VerbosePreference
+        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads 1 35
@@ -602,7 +624,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 
             $exportedFileName
         }
-        $ArgumentList = $file,$finalKeyList,$SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
+        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads 60 99
@@ -696,9 +718,10 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
         }
         
         if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
-            Write-Verbose "We've completed some jobs, we need to start $($MaxJobs-$JobsRunning) more"
-            1..$($MaxJobs-$JobsRunning) | ForEach-Object {
-                Write-Verbose "iteration: $_ of $($MaxJobs-$JobsRunning)"
+            $NumJobstoRun = @(($MaxJobs-$JobsRunning),$jobQ.Count)[$jobQ.Count -lt ($MaxJobs-$JobsRunning)]
+            Write-Verbose "We've completed some jobs, we need to start $NumJobstoRun more"
+            1..$NumJobstoRun | ForEach-Object {
+                Write-Verbose "iteration: $_ of $NumJobstoRun"
                 if ($jobQ.Count -eq 0) {
                     Write-Verbose "There are 0 jobs left. Skipping the loop"
                     return
@@ -729,7 +752,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     
     Write-Progress -Activity "Sanitising" -Id 1 -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
-    $keylists = Scout-Stripper $files $flags $rootFolder
+    $keylists = Scout-Stripper $files $script:Config.flags $rootFolder
     Write-Verbose "finished finding keys"
     
     Write-Progress -Activity "Sanitising" -Id 1 -Status "Merging Keylists" -PercentComplete 35
@@ -768,21 +791,26 @@ if ( $ConfigFile ) {
 
 # If we didn't get told what config to use, check locally for a 'UseMe' config file
 if (-not $configUsed -and -not $SelfContained) {
+    $configText = ''
     try {
         $tmp_f = join-path $( Get-location ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
-
-        # Check it has the UseMe field set to true before continuing
-        if ( $configText -match 'UseMe\s*=\s*true' ) { # should probs test this
-            Write-Verbose "Found local default config file to use, importing it's settings"
-            $Script:Config = proc-config-file $configText
-            $configUsed = $true
-        } else {
-            Write-Verbose "Ignored local config file due to false or missing UseMe value."
-        }
-
+        
+        # todo This will need to check all local .conf files to work properly this does nothing atm
+        # # Check it has the UseMe field set to true before continuing
+        # if ( $configText -match 'UseMe\s*=\s*true' ) { # should probs test this
+            #     
+            # } else {
+                #     Write-Verbose "Ignored local config file due to false or missing UseMe value."
+                # }   
     } catch {
-        Write-Verbose "Could not find a local config file"
+        Write-Warning "SETUP: Could not find or read 'strippy.conf' in $(get-location)"
+    }
+
+    if ($configText) {
+        Write-Verbose "Found local default config file to use, importing it's settings"
+        $Script:Config = proc-config-file $configText
+        $configUsed = $true
     }
 }
 
@@ -790,14 +818,14 @@ if (-not $configUsed -and -not $SelfContained) {
 if (-not $configUsed -and -not $SelfContained) {
     # If we were running silent mode then we should end specific error code There
     if ( $Silent ) {
-        Write-Error "Unable to find config file"
+        Write-Error "SETUP: Unable to locate config file. Please specify location using -ConfigFile flag or ensure strippy.conf exists in $(get-location)"
         exit -9
     }
 
     $ans = Read-Host "Unable to find a strippy.conf file. This file contains the rules that are used to determine sensitive data.
-Continuing now will only sanitise IP addresses and Windows UNC paths
-Would you like to continue with only these? 
-y/n> (y) "
+    Continuing now will use the default configuration and only sanitise IP addresses and Windows UNC paths.
+    Would you like to continue with only these? 
+    y/n> (y) "
     if ( $ans -eq 'n' ) {
         # Could us another question here to ask if the user would like to make a config file
         Write-Information "Use the -MakeConfig argument to create a strippy.conf file and start adding sensitive data rules"
@@ -846,7 +874,7 @@ $filesToProcess = @()
 $OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
 
 # is it a directory?
-$isDir = $( get-item $File ).Mode -eq 'd-----'
+$isDir = Test-Path -LiteralPath $file -PathType Container
 if ( $isDir ) {
     Write-Verbose "$File is a folder"
 
@@ -869,7 +897,7 @@ if ( $isDir ) {
 
     # If we didn't find any files clean up and exit
     if ( $files.Length -eq 0 ) {
-        Write-Error "Could not find any appropriate files to sanitise in $File"
+        Write-Error "SETUP: Could not find any appropriate files to sanitise in $File"
         Clean-Up
     }
 
@@ -883,9 +911,18 @@ if ( $isDir ) {
         $OutputFolder = $(Get-Item "$f").FullName
     } # Make the new dir
 
+# Support Paths with wildcards at somepoint
+} elseif ( $File -contains '*' ) {
+    # Resolve the wildcard used in the thingy.
+    # Check that there's actually files.
+    # Check that they fit normal file criteria?
+    # We process them where they are
+    Write-Error "SETUP: Paths with wildcards are not yet supported"
+    Clean-Up
+        
 # We also want to support archives by treating them as folders we just have to unpack first
 } elseif ( $( get-item $File ).Extension -eq '.zip') {
-    Write-Information "Archives are not supported yet"
+    Write-Error "SETUP: Archives are not yet supported"
     # unpack
     # run something similar to the folder code above
     # add files that we want to process to $filestoprocess
