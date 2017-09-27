@@ -94,7 +94,7 @@ param (
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [Switch] $InPlace = $i,
     # Creates a barebones strippy.conf file for the user to fill edit
-    [Switch] $MakeConfig, 
+    # [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeylistOutput 
     [String] $ko,
     # Specifies an alternate name and path for the keylist file
@@ -185,7 +185,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
         }
 
         Write-Information "`nExporting KeyList to $kf"
-        $KeyOutfile = (eval-config-string $KeyListFirstline) + $( $finalKeyList | Out-String )
+        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
@@ -298,7 +298,7 @@ function write-when-normal {
             }
             'Config' {
                 # Proc if its an array or bool
-                $Config[$lineKey] = $lineValue
+                $Config[$lineKey] = $lineValue[1..($lineValue.length-2)] -join ''
                 Write-Verbose "Line $linenum stored: Setting: $lineKey, Value: $lineValue"
             }
             'Rules' {
@@ -324,8 +324,7 @@ function write-when-normal {
     }
 
     Write-Verbose "config is here`n$($config | Out-String)`n`n"
-    Write-host "Flags"
-    $config.flags | % { Write-host "$($_.Item1)->$($_.Item2)" }
+    # $config.flags | % { Write-host "$($_.Item1)->$($_.Item2)" }
     $config.origin = $ConfigFile # store where the config is from
     return $config
 }
