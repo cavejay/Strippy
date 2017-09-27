@@ -126,9 +126,9 @@ $SelfContained = $false
 ## Variables: (Over written by any config file)
 $Config = @{"origin"="default"}
 $Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
-$Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`n==`n`n"
-$Config.KeyListFirstline = "This keylist was created at {0}.`n"
-$Config.KeyFileName = "KeyList - $( $(Get-date).toString() ).txt"
+$Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
+$Config.KeyListFirstline = "This keylist was created at {0}."
+$Config.KeyFileName = "KeyList.txt"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
@@ -185,7 +185,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
         }
 
         Write-Information "`nExporting KeyList to $kf"
-        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + $( $finalKeyList | Out-String )
+        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
@@ -292,14 +292,26 @@ function write-when-normal {
                         $Config.UseMe = $lineValue -eq "true"
                     }
                     Default {
-                        Write-Warning "Unknown configuration setting '$lineKey' found on line $linenum`: $line"
+                        Write-Warning "CONFIG: Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
                 }
             }
             'Config' {
-                # Proc if its an array or bool
-                $Config[$lineKey] = $lineValue[1..($lineValue.length-2)] -join ''
-                Write-Verbose "Line $linenum stored: Setting: $lineKey, Value: $lineValue"
+                # Binary Option
+                if ($lineValue -eq "true" -or $lineValue -eq "false") {
+                    $config[$lineKey] = $lineValue -match "true"
+
+                # Array option
+                } elseif ($false) {
+
+
+                # String option
+                } elseif ($lineValue[0] -eq '"' -and $lineValue[-1] -eq '"') {
+                    $Config[$lineKey] = $lineValue[1..($lineValue.length-2)] -join ''
+                    Write-Verbose "Line $linenum stored: Setting: $lineKey, Value: $lineValue"
+                } else {
+                    Write-Warning "CONFIG: Unrecognised config format on line $linenum`: $line. It Does not seem to be a string, bool or array and so will be ignored"
+                }
             }
             'Rules' {
                 # Need to validate keys and the like
@@ -426,14 +438,9 @@ function Get-MimeType() {
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
     function eval-config-string ([string] $str) {
-        $out = "$str"
-        if (($str[0..4] -join '') -eq "eval:") {
-            Write-Verbose "config string |$str| needs to be eval'd"
-            $out = Invoke-Expression `"$(($str -split "eval:")[1] -f $(get-date).ToString())`"
-            Write-Verbose "Eval'd to: $out"
-        } else {
-            Write-Verbose "Config string |$str| was not eval'd"
-        }
+        Write-Verbose "config string |$str| is getting eval'd"
+        $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
+        Write-Verbose "Eval'd to: $out"
         return $out
     }
 
@@ -540,8 +547,8 @@ $JobFunctions = {
                     $k =  $Keys.GetEnumerator() | Where-Object { $_.Value -eq $mval }
                     Write-Verbose "Recognised as: $($k.key)"
                 
-                # Check the $IgnoredStrings list
-                } elseif ( $IgnoredStrings.Contains($mval) ) {
+                # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
+                } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { $val = ($mval -eq $_) -or $val } {$val} ) {
                     Write-Verbose "Found ignored string: $mval"
     
                 # Create a key and assign it to the match
