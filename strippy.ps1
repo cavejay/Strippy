@@ -467,7 +467,7 @@ $JobFunctions = {
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
-            $content = $content -replace [regex]::Escape($key.value), $key.key
+            $content = $content.replace($key.value, $key.key)
         }
         Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
