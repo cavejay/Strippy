@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.170926
+    Version: 2.171010
     Compatability: Powershell 5+
 
 .LINK
@@ -86,7 +86,7 @@ param (
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [Switch] $InPlace = $false,
     # Creates a barebones strippy.conf file for the user to fill edit
-    # [Switch] $MakeConfig, 
+    [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeylistOutput 
     [String] $ko,
     # Specifies an alternate name and path for the keylist file
@@ -142,6 +142,51 @@ if ( $Verbose -and -not $Silent) {
     $oldDebugPref = $DebugPreference
     $VerbosePreference = 'Continue'
     $DebugPreference = 'Continue'
+}
+
+#Check if we're _just_ creating a default config file
+if ( $MakeConfig ) {
+    $confloc = Join-Path $( Get-Location ) strippy.conf
+    $defaultConfig = '; Strippy Config file
+UseMe=true
+;Recurse=true
+;InPlace=false
+;Silent=false
+;MaxThreads=5
+
+[ Config ]
+IgnoredStrings="/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications", ""
+
+; These settings can use braces to include dynamic formatting: 
+; {0} = Date/Time at processing
+; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy 
+SanitisedFileFirstLine="This file was Sanitised at {0}.`r`n==`r`n`r`n"
+KeyListFirstLine="This keylist was created at {0}."
+;KeyFileName="Keylist.txt"
+;AlternateOutputFolder=".\sanitisedoutput"
+
+[ Rules ]
+;"Some Regex String here"="Replacement here"
+"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]"="Address"
+"\\\\([\w\-.]*?)\\"="Hostname"
+'
+
+    # Check to make sure we're not overwriting someone's config file
+    if ( Test-Path $( $confloc ) ) {
+        Write-Information "A config file already exists. Would you like to overwrite it with the default?"
+        $ans = Read-Host "y/n> (n) "
+        if ( $ans -ne 'y' ) {
+            Write-Information "Didn't overwrite the current config file"
+            exit 0
+        } else {
+            Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
+            Write-Information $([IO.file]::ReadAllText($confloc))
+        }
+    }
+
+    $defaultConfig | Out-File -Encoding ascii $confloc
+    Write-Information "Generated config file: $confloc"
+    exit 0
 }
 
 # Usage
