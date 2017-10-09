@@ -210,7 +210,7 @@ function write-when-normal {
 ## Process Config file 
  function proc-config-file ( $cf ) {
     $stages = @('UseMe', 'Config', 'Rules')
-    $validLineKey = @('UseMe', 'IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename')
+    $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
 
     $config = @{flags=@()}
@@ -218,7 +218,6 @@ function write-when-normal {
     $lines = $cf -split "`r?`n"
     ForEach ( $line in $lines ) {
         $lineNum++
-
         # Do some checks about the line we're on
         if ( $line -match "^\s*;" ) {
             write-verbose "skipped comment: $line"
@@ -265,20 +264,33 @@ function write-when-normal {
             $lineKey = $matches.groups[1].value
             $lineValue = $matches.groups[2].value
             # If we're not reading rules and we don't recognise the key, show a warning
-            if ( $stages[$stage] -ne "Rules" -and $validLineKey -notcontains $lineKey ) {
+            if ( $stages[$stage] -eq "Config" -and $validLineKey -notcontains $lineKey ) {
                 Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
                 Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
             }
+        } else { # if we didn't match the above then we're broke so quit
+            Write-Verbose "Could not parse line $linenum as a ini config line. Creating an error"
+            Write-Error "CONFIG: Unable to parse config on line $linenum`: $line"
+            exit -1
         }
 
         # Action lines based on stage
-        switch ( $stages[$stage] ) {
-            'UseMe' {
+        switch ( $stages[$stage] ) { 
+            'UseMe' { # \\todo this is super dodge and needs more validation :( please improve
                 # Use a switch for easy adding if there's more
                 switch ( $lineKey ) {
-                    'UseMe' {
-                        $Config.UseMe = $lineValue -eq "true"
+                    'UseMe' {$Config.UseMe = $lineValue -eq "true"}
+                    'MaxThreads' {
+                        if ($lineValue -match "\d*") {
+                            $config.MaxThreads = [convert]::ToInt32($lineValue, 10)
+                        } else {
+                            Write-Verbose "MaxThreads value was not a valid numeric form. Will show a warning and continue with default"
+                            Write-Warning "CONFIG: Maxthreads value was not a valid number. Contining with default value: $script:MaxThreads"
+                        }
                     }
+                    'Silent' {$Config.Silent = $lineValue -eq "true"}
+                    'Recurse' {$Config.Recurse = $lineValue -eq "true"}
+                    'InPlace' {$Config.InPlace = $lineValue -eq "true"}
                     Default {
                         Write-Warning "CONFIG: Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
@@ -290,8 +302,8 @@ function write-when-normal {
                     $config[$lineKey] = $lineValue -match "true"
 
                 # Array option
-                } elseif ($false) {
-
+                } elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
+                    $config[$lineKey] = $lineValue -split ",\s*"
 
                 # String option
                 } elseif ($lineValue[0] -eq '"' -and $lineValue[-1] -eq '"') {
@@ -324,8 +336,7 @@ function write-when-normal {
     }
 
     Write-Verbose "config is here`n$($config | Out-String)`n`n"
-    # $config.flags | % { Write-host "$($_.Item1)->$($_.Item2)" }
-    $config.origin = $ConfigFile # store where the config is from
+    # $config.origin = $ConfigFile # store where the config is from
     return $config
 }
 
