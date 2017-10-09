@@ -171,6 +171,27 @@ if ( -not (Test-Path $File) ) {
 #######################################################################################33
 # Function definitions
 
+function Log {
+    [CmdletBinding()]
+    param(
+        [Parameter (Mandatory=$true,Position=1)][String] $Stage,
+        [Parameter (Mandatory=$true,Position=2)][String] $String,
+        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "",
+        [Parameter (Mandatory=$false,Position=4)][Switch] $ErrorType = $false,
+        [Parameter (Mandatory=$false,Position=5)][Switch] $WarningType = $false,
+        [Parameter (Mandatory=$false,Position=6)][String] $Logfile = $myinvocation.mycommand.Name.Split(".")[0] + "_" + (Get-Date -format yyyyMMdd_hhmmsstt) + ".log"
+    )
+    if ($Colour -eq "" -and ($WarningType -or $ErrorType)) {
+        $Colour  =@("RED", "YELLOW")[$WarningType]
+    } elseif ($Colour -eq "") {
+        $Colour = "WHITE"
+    }
+    write-host $String -foregroundcolor $Color  
+    $preamble = @('T', @('W', 'E')[[bool]$ErrorType])[[bool]$WarningType] + " " + $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s}) #fancy thing at the end just gets the firist 4 chars of $stage or pads it with spaces
+    $timestamp = (Get-Date -format "yy-MM-dd HH:mm:ss.") + "{0:D3}" -f (Get-Date).Millisecond
+    ($preamble + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
+}
+
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     . $JobFunctions # to gain access to eval-config-string
     $kf = join-path $PWD "KeyList.txt"
@@ -220,7 +241,7 @@ function write-when-normal {
 }
 
 ## Process Config file 
- function proc-config-file ( $cf ) {
+function proc-config-file ( $cf ) {
     $stages = @('UseMe', 'Config', 'Rules')
     $validLineKey = @('UseMe', 'IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename')
     $stage = 0; $lineNum = 0
