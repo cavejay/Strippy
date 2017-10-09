@@ -108,7 +108,7 @@ param (
 # Special Variables: (Not overwritten by config files)
 # If this script is self contained then all config is specified in the script itself and config files are not necessary or requested for. 
 # This cuts down the amount of files necessary to move between computers and makes it easier to give to someone and say "run this"
-$SelfContained = $false
+# $SelfContained = $false # Not really implemented yet.
 
 ## Variables: (Over written by any config file and include all the command line variables)
 # Priority of inputs: Default -> Configfile -> cmdline input
@@ -843,7 +843,7 @@ if ( $ConfigFile ) {
 }
 
 # If we didn't get told what config to use, check locally for a 'UseMe' config file
-if (-not $configUsed -and -not $SelfContained) {
+if (-not $configUsed <# -and -not $SelfContained #>) {
     $configText = ''
     try {
         $tmp_f = join-path $( Get-location ) "strippy.conf"
@@ -868,7 +868,7 @@ if (-not $configUsed -and -not $SelfContained) {
 }
 
 # If we still don't have a config then we need user input
-if (-not $configUsed -and -not $SelfContained) {
+if (-not $configUsed <# -and -not $SelfContained #>) {
     # If we were running silent mode then we should end specific error code There
     if ( $Silent ) {
         Write-Error "SETUP: Unable to locate config file. Please specify location using -ConfigFile flag or ensure strippy.conf exists in $(get-location)"
