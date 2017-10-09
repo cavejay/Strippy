@@ -77,22 +77,14 @@
 
 [CmdletBinding()]
 param (
-    # A shortcut for -File
-    [String] $f,
     # The File or Folder you wish to sanitise
-    [String] $File = $f,
-    # A shortcut for -Silent
-    [Switch] $si = $false,
+    [String] $File,
     # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
-    [Switch] $Silent = $si,
-    # A shortcut for -Recurse
-    [Switch] $r = $false,
+    [Switch] $Silent = $false,
     # Looks for log files throughout a directory tree rather than only in the first level
-    [Switch] $Recurse = $r,
-    # A shortcut for -InPlace
-    [Switch] $i = $false,
+    [Switch] $Recurse = $false,
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    [Switch] $InPlace = $i,
+    [Switch] $InPlace = $false,
     # Creates a barebones strippy.conf file for the user to fill edit
     # [Switch] $MakeConfig, 
     # A shortcut for -AlternateKeylistOutput 
@@ -103,19 +95,14 @@ param (
     [String] $o, 
     # Specifies an alternate path or file for the sanitised file
     [String] $AlternateOutputFolder = $o, 
-    # A shortcut for -KeyFile
-    [String] $k,
     # Specifies a previously generated keylist file to import keys from for this sanitisation
-    [String] $KeyFile = $k, 
+    [String] $KeyFile, 
     # Archive the folder or file after sanitising it
     # [switch] $zip, 
-    [String] $c,
     # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $ConfigFile = $c,
-    # A shortcut for -MaxThreads
-    [int] $m = 5,
+    [String] $ConfigFile,
     # How threaded can this process become?
-    [int] $MaxThreads = $m
+    [int] $MaxThreads = 5
 )
 
 # Special Variables: (Not overwritten by config files)
@@ -123,8 +110,9 @@ param (
 # This cuts down the amount of files necessary to move between computers and makes it easier to give to someone and say "run this"
 $SelfContained = $false
 
-## Variables: (Over written by any config file)
-$Config = @{"origin"="default"}
+## Variables: (Over written by any config file and include all the command line variables)
+# Priority of inputs: Default -> Configfile -> cmdline input
+$Config = @{}
 $Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
 $Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
 $Config.KeyListFirstline = "This keylist was created at {0}."
