@@ -58,17 +58,17 @@
 #>
 
 # Todo
+# combine AlternateKeyListOutput and keylistfile config settings. 
 # Dealing with selections of files a la "server.*.log" or similar
-# Make -Silent print output to a file?
+# Add support/warning for ps 4
+# Logging
 # Have option for diagnotics file or similar that shows how many times each rule was hit
-# Print/Sanitising sometimes breaks?
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 # More intellient capitalisation resolution.
 # Move from jobs to runspaces?
-# Add support/warning for ps 4
+# Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
@@ -303,7 +303,7 @@ function write-when-normal {
 
                 # Array option
                 } elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
-                    $config[$lineKey] = $lineValue -split ",\s*"
+                    $config[$lineKey] = ($lineValue[1..($lineValue.length-2)] -join '') -split "`",\s*`""
 
                 # String option
                 } elseif ($lineValue[0] -eq '"' -and $lineValue[-1] -eq '"') {
@@ -547,7 +547,10 @@ $JobFunctions = {
                     Write-Verbose "Recognised as: $($k.key)"
                 
                 # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
-                } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { $val = ($mval -eq $_) -or $val } {$val} ) {
+                } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { 
+                    write-verbose "Checking $mval against $_`: $($mval -eq $_) or $val"
+                    $val = ($mval -eq $_) -or $val 
+                } {$val} ) {
                     Write-Verbose "Found ignored string: $mval"
     
                 # Create a key and assign it to the match
