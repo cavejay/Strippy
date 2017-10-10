@@ -578,7 +578,7 @@ $JobFunctions = {
         $Keys = @{}
         # Open file
         Write-Verbose "Filtering out lines that match $killerFlags"
-        $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags
+        $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags -join "`r`n"
         
         # Process file for tokens
         $count = 1
@@ -794,7 +794,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
         }
 
         ## Setting for loop processing speed
-        Start-Sleep -Milliseconds 1000
+        Start-Sleep -Milliseconds 500
     }
 
     # Ensure all progress bars are cleared
