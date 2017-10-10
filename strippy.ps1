@@ -633,7 +633,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $killerFlags, $vPref)
-            $VerbosePreference = $vPref
+            # $VerbosePreference = $vPref
 
             Find-Keys $file $flags $IgnoredStrings $killerFlags
             Write-Verbose "Found all the keys in $file"
