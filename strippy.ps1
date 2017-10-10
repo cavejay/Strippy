@@ -254,7 +254,7 @@ function write-when-normal {
 
 ## Process Config file 
  function proc-config-file ( $cf ) {
-    $stages = @('UseMe', 'Config', 'Rules')
+    $stages = @('Switches', 'Config', 'Rules')
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
 
@@ -321,10 +321,9 @@ function write-when-normal {
 
         # Action lines based on stage
         switch ( $stages[$stage] ) { 
-            'UseMe' { # \\todo this is super dodge and needs more validation :( please improve
+            'Switches' { # \\todo this is super dodge and needs more validation :( please improve
                 # Use a switch for easy adding if there's more
                 switch ( $lineKey ) {
-                    'UseMe' {$Config.UseMe = $lineValue -eq "true"}
                     'MaxThreads' {
                         if ($lineValue -match "\d*") {
                             $config.MaxThreads = [convert]::ToInt32($lineValue, 10)
@@ -368,6 +367,13 @@ function write-when-normal {
 
                     # Add the rule to the flags array
                     $config.flags += [System.Tuple]::Create($lineKey,$lineValue)
+                } elseif ($line -match '^".*"=\\delete\s*$') {
+                    $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
+                    if ($config.killerflag) {
+                        $config.killerflag += "|$flagtoremoveentirely"
+                    } else {
+                        $config.killerflag = "$flagtoremoveentirely"
+                    }
                 } else {
                     Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
                     Found as Key: |$lineKey| & Value: |$lineValue|"
@@ -566,12 +572,13 @@ $JobFunctions = {
     }
     
     ## Build the key table for all the files
-    function Find-Keys ( [string] $fp, $flags, $IgnoredStrings ) {
+    function Find-Keys ( [string] $fp, $flags, $IgnoredStrings, [String] $killerFlags ) {
         Write-Verbose "Finding Keys in $fp"
         # dictionary to populate
         $Keys = @{}
         # Open file
-        $f = [IO.file]::ReadAllText( $fp )
+        Write-Verbose "Filtering out lines that match $killerFlags"
+        $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags
         
         # Process file for tokens
         $count = 1
@@ -617,7 +624,7 @@ $JobFunctions = {
 }
 
 # Takes a file and outputs it's the keys
-function Scout-Stripper ($files, $flags, $rootFolder) {
+function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerFlags, [int] $PCompleteStart, [int] $PCompleteEnd) {
     Write-Verbose "Started scout stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
@@ -625,16 +632,16 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
     ForEach ($file in $files) {
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
-            PARAM($file, $flags, $IgnoredStrings, $vPref)
-            # $VerbosePreference = $vPref
+            PARAM($file, $flags, $IgnoredStrings, $killerFlags, $vPref)
+            $VerbosePreference = $vPref
 
-            Find-Keys $file $flags $IgnoredStrings
+            Find-Keys $file $flags $IgnoredStrings $killerFlags
             Write-Verbose "Found all the keys in $file"
         } 
-        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$VerbosePreference
+        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$killerFlags,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q $MaxThreads 1 35
+    Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -653,7 +660,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
     return $keylists
 }
 
-function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [bool] $inPlace) {
+function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
     Write-Verbose "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
@@ -662,11 +669,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     ForEach ($file in $files) {
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
-            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $inPlace, $vPref)
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $killerFlags, $inPlace, $vPref)
             # $VerbosePreference = $vPref
             # $DebugPreference = $vPref
 
-            $content = [IO.file]::ReadAllText($file)
+            Write-Verbose "Filtering out lines that match $killerFlags"            
+            $content = [IO.file]::ReadAllLines($file) -notmatch $killerFlags -join "`r`n"
             Write-Verbose "Loaded in content of $file"
 
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
@@ -677,10 +685,10 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 
             $exportedFileName
         }
-        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
+        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$killerFlags,$inPlace,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q $MaxThreads 60 99
+    Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
     Write-Verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
@@ -698,7 +706,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     return $sanitisedFilenames
 }
 
-function Merging-Stripper ([Array] $keylists) {
+function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCompleteEnd) {
     . $JobFunctions # Make the gen-key-name function available
 
     # If we only proc'd one file then return that
@@ -725,7 +733,7 @@ function Merging-Stripper ([Array] $keylists) {
         }
         $perc = ($keylists.IndexOf($keylist)+1)/($keylists.count)
         write-verbose "Done $($perc*100)% of keylists"
-        Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $($perc*(60-35)+35)
+        Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $($perc*($PCompleteEnd-$PCompleteStart)+$PCompleteStart)
     }
     Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId 1 -Completed
 
@@ -802,10 +810,10 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     Get-Job | Stop-Job
     Get-job | Remove-Job
     Write-Debug "removed all background jobs"
-    
+
     Write-Progress -Activity "Sanitising" -Id 1 -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
-    $keylists = Scout-Stripper $files $script:Config.flags $rootFolder
+    $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
     Write-Verbose "finished finding keys"
     
     Write-Progress -Activity "Sanitising" -Id 1 -Status "Merging Keylists" -PercentComplete 35
@@ -813,12 +821,12 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     if ($importedKeys) { [array]$keylists += $importedKeys }
 
     # Merge all of the keylists into a single dictionary.
-    $finalKeyList = Merging-Stripper $keylists
+    $finalKeyList = Merging-Stripper $keylists 35 60
     Write-Verbose "Finished merging keylists"
 
     Write-Progress -Activity "Sanitising" -Id 1 -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
-    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
     Write-Verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
@@ -848,14 +856,6 @@ if (-not $configUsed <# -and -not $SelfContained #>) {
     try {
         $tmp_f = join-path $( Get-location ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
-        
-        # todo This will need to check all local .conf files to work properly this does nothing atm
-        # # Check it has the UseMe field set to true before continuing
-        # if ( $configText -match 'UseMe\s*=\s*true' ) { # should probs test this
-            #     
-            # } else {
-                #     Write-Verbose "Ignored local config file due to false or missing UseMe value."
-                # }   
     } catch {
         Write-Warning "SETUP: Could not find or read 'strippy.conf' in $(get-location)"
     }

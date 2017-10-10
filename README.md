@@ -78,4 +78,7 @@ KeyListFirstLine="This keylist was created at {0}."
 "FQDN, NBT, and IP addresses used \{\[.*?\]\[.*?\]\} \{\} \{\[(.*?)\]\}"="Address"
 "Verified CSS \[\[.*?\]\[(.*?)\]\] in Federation"="FQDN"
 "Verified CSS \[\[(.*?)\]\[.*?\]\] in Federation"="FQDN"
+
+; Rules with the Replacement text of '\delete' processed first and deleted entirely
+"^.*resolved to.*$"=\delete
 ```
