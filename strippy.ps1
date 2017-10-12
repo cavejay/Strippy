@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.171010
+    Version: 2.171012
     Compatability: Powershell 5+
 
 .LINK
