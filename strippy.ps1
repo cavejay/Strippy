@@ -61,6 +61,8 @@
 # combine AlternateKeyListOutput and keylistfile config settings. 
 # Dealing with selections of files a la "server.*.log" or similar
 # Add support/warning for ps 4
+# Use PS-InlineProgress or check and then use it if we're in the exe version
+# Switch to add strippy to your ps profile for quick running
 # Logging
 # Have option for diagnotics file or similar that shows how many times each rule was hit
 # Publish to dxs wiki
@@ -123,6 +125,7 @@ $Config.KeyFileName = "KeyList.txt"
 
 # General config 
 $PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
+$_tp = 992313 # top Progress
 
 # Flags
 $Config.flags = New-Object System.Collections.ArrayList
@@ -720,7 +723,7 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
     $currentKey = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
-            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId 1
+            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId $_tp
 
             # if new, merged keylist does not contain the key
             if ($output.values -notcontains $keylist.$Key) {
@@ -733,9 +736,9 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
         }
         $perc = ($keylists.IndexOf($keylist)+1)/($keylists.count)
         write-verbose "Done $($perc*100)% of keylists"
-        Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $($perc*($PCompleteEnd-$PCompleteStart)+$PCompleteStart)
+        Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $($perc*($PCompleteEnd-$PCompleteStart)+$PCompleteStart)
     }
-    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId 1 -Completed
+    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId $_tp -Completed
 
     return $output
 }
@@ -759,7 +762,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
-                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp
                     Write-Verbose "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
@@ -771,7 +774,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                     $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
                     Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $perc
 
-                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1 -Complete
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
                 }
@@ -799,24 +802,24 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
 
     # Ensure all progress bars are cleared
     ForEach ($Job in Get-Job) {
-        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId 1 -Complete
+        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId $_tp -Complete
     }    
 }
 
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Clearing background jobs" -PercentComplete 0
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Clearing background jobs" -PercentComplete 0
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
     Write-Debug "removed all background jobs"
 
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Discovering Keys" -PercentComplete 1
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
     Write-Verbose "finished finding keys"
     
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Merging Keylists" -PercentComplete 35
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
     if ($importedKeys) { [array]$keylists += $importedKeys }
 
@@ -824,7 +827,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     $finalKeyList = Merging-Stripper $keylists 35 60
     Write-Verbose "Finished merging keylists"
 
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Sanitising separate files" -PercentComplete 60
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
     Write-Verbose "Finished sanitising and exporting files"
@@ -999,14 +1002,14 @@ if ($AlternateOutputFolder) {
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
 
-Write-Progress -Activity "Sanitising" -Id 1 -Status "Outputting Keylist" -PercentComplete 99
+Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -PercentComplete 99
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
 if (-not $Silent) {$finalKeyList}
 
-Write-Progress -Activity "Sanitising" -Id 1 -Status "Finished" -PercentComplete 100
+Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
-Write-Progress -Activity "Sanitising" -Id 1 -Completed
+Write-Progress -Activity "Sanitising" -Id $_tp -Completed
 Clean-Up
