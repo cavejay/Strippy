@@ -94,7 +94,11 @@ param (
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [Switch] $InPlace = $i,
     # Creates a barebones strippy.conf file for the user to fill edit
-    # [Switch] $MakeConfig, 
+    [Switch] $MakeConfig,
+    #
+    [Switch] $log = $false,
+    #
+    [String] $logfile = ".\strippy.log",
     # A shortcut for -AlternateKeylistOutput 
     [String] $ko,
     # Specifies an alternate name and path for the keylist file
@@ -117,6 +121,37 @@ param (
     # How threaded can this process become?
     [int] $MaxThreads = $m
 )
+
+## Setup Log functions
+function shuffle-logs () {
+
+}
+
+function log {
+    [CmdletBinding()]
+    PARAM (
+        [Parameter (Mandatory=$true,Position=1)][String] $Stage,
+        [Parameter (Mandatory=$true,Position=2)][String] $String,
+        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "",
+        [Parameter (Mandatory=$false,Position=4)][Switch] $Error_ = $false,
+        [Parameter (Mandatory=$false,Position=5)][Switch] $Warning = $false,
+        [Parameter (Mandatory=$false,Position=5)][Switch] $Debug_ = $false,
+        [Parameter (Mandatory=$false,Position=6)][String] $Logfile
+    )
+    $Logfile = ($null,$Logfile,$Global:logfile -ne $null)[0] # fancy ifNull assignment
+
+
+    if ($Colour -eq "" -and ($WarningType -or $ErrorType)) {
+        $Colour  =@("RED", "YELLOW")[$WarningType]
+    } elseif ($Colour -eq "") {
+        $Colour = "WHITE"
+    }
+    write-host $String -foregroundcolor $Color  
+    $preamble = @('T', @('W', 'E')[[bool]$ErrorType])[[bool]$WarningType] + " " + $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s}) #fancy thing at the end just gets the firist 4 chars of $stage or pads it with spaces
+    $timestamp = (Get-Date -format "yy-MM-dd HH:mm:ss.") + "{0:D3}" -f (Get-Date).Millisecond
+    ($preamble + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
+
+}
 
 # Special Variables: (Not overwritten by config files)
 # If this script is self contained then all config is specified in the script itself and config files are not necessary or requested for. 
@@ -170,27 +205,6 @@ if ( -not (Test-Path $File) ) {
 
 #######################################################################################33
 # Function definitions
-
-function Log {
-    [CmdletBinding()]
-    param(
-        [Parameter (Mandatory=$true,Position=1)][String] $Stage,
-        [Parameter (Mandatory=$true,Position=2)][String] $String,
-        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "",
-        [Parameter (Mandatory=$false,Position=4)][Switch] $ErrorType = $false,
-        [Parameter (Mandatory=$false,Position=5)][Switch] $WarningType = $false,
-        [Parameter (Mandatory=$false,Position=6)][String] $Logfile = $myinvocation.mycommand.Name.Split(".")[0] + "_" + (Get-Date -format yyyyMMdd_hhmmsstt) + ".log"
-    )
-    if ($Colour -eq "" -and ($WarningType -or $ErrorType)) {
-        $Colour  =@("RED", "YELLOW")[$WarningType]
-    } elseif ($Colour -eq "") {
-        $Colour = "WHITE"
-    }
-    write-host $String -foregroundcolor $Color  
-    $preamble = @('T', @('W', 'E')[[bool]$ErrorType])[[bool]$WarningType] + " " + $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s}) #fancy thing at the end just gets the firist 4 chars of $stage or pads it with spaces
-    $timestamp = (Get-Date -format "yy-MM-dd HH:mm:ss.") + "{0:D3}" -f (Get-Date).Millisecond
-    ($preamble + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
-}
 
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     . $JobFunctions # to gain access to eval-config-string
