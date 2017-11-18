@@ -95,9 +95,9 @@ param (
     [Switch] $InPlace = $i,
     # Creates a barebones strippy.conf file for the user to fill edit
     [Switch] $MakeConfig,
-    #
+    # Perform logging for this execution
     [Switch] $log = $false,
-    #
+    # The specific log file to log to. This is useless unless the log switch is used
     [String] $logfile = ".\strippy.log",
     # A shortcut for -AlternateKeylistOutput 
     [String] $ko,
@@ -127,30 +127,45 @@ function shuffle-logs () {
 
 }
 
+
+<#
+    logfunction. Default params will log to file with date 
+#>
 function log {
     [CmdletBinding()]
     PARAM (
         [Parameter (Mandatory=$true,Position=1)][String] $Stage,
         [Parameter (Mandatory=$true,Position=2)][String] $String,
-        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "",
+        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "WHITE",
         [Parameter (Mandatory=$false,Position=4)][Switch] $Error_ = $false,
         [Parameter (Mandatory=$false,Position=5)][Switch] $Warning = $false,
         [Parameter (Mandatory=$false,Position=5)][Switch] $Debug_ = $false,
-        [Parameter (Mandatory=$false,Position=6)][String] $Logfile
+        [Parameter (Mandatory=$false,Position=5)][Switch] $Message = $false,
+        [Parameter (Mandatory=$false,Position=6)][String] $Logfile = $Global:logfile
     )
-    $Logfile = ($null,$Logfile,$Global:logfile -ne $null)[0] # fancy ifNull assignment
-
-
-    if ($Colour -eq "" -and ($WarningType -or $ErrorType)) {
-        $Colour  =@("RED", "YELLOW")[$WarningType]
-    } elseif ($Colour -eq "") {
-        $Colour = "WHITE"
+    # Deal with the colour
+    $1 = 'T'
+    if ($Warning -or $Debug_ -or $Error_ -or $Message) {
+        if ($Warning) {
+            $1 = 'W'
+            $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
+        } elseif ($Error_)  {
+            $1 = 'E'
+            $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
+        } elseif ($Debug_) {
+            $1 = 'D'
+        } elseif ($Message) {
+            $1 = 'I'
+        }
     }
-    write-host $String -foregroundcolor $Color  
-    $preamble = @('T', @('W', 'E')[[bool]$ErrorType])[[bool]$WarningType] + " " + $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s}) #fancy thing at the end just gets the firist 4 chars of $stage or pads it with spaces
-    $timestamp = (Get-Date -format "yy-MM-dd HH:mm:ss.") + "{0:D3}" -f (Get-Date).Millisecond
-    ($preamble + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
 
+    if ($Message -and -not $silent) {
+        write-host $String -foregroundcolor $Color  
+    }
+    
+    $stageSection = $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+    $timestamp = (Get-Date -format "yy-MM-dd HH:mm:ss.") + "{0:D3}" -f (Get-Date).Millisecond
+    ($1 + " " + $stageSection + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
 }
 
 # Special Variables: (Not overwritten by config files)
