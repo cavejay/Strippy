@@ -123,8 +123,8 @@ param (
 )
 
 ## Setup Log functions
-function shuffle-logs () {
-
+function shuffle-logs ($MaxSize, $LogFile = $Global:logfile) {
+    
 }
 
 
@@ -136,13 +136,16 @@ function log {
     PARAM (
         [Parameter (Mandatory=$true,Position=1)][String] $Stage,
         [Parameter (Mandatory=$true,Position=2)][String] $String,
-        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "WHITE",
+        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "",
         [Parameter (Mandatory=$false,Position=4)][Switch] $Error_ = $false,
         [Parameter (Mandatory=$false,Position=5)][Switch] $Warning = $false,
         [Parameter (Mandatory=$false,Position=5)][Switch] $Debug_ = $false,
         [Parameter (Mandatory=$false,Position=5)][Switch] $Message = $false,
         [Parameter (Mandatory=$false,Position=6)][String] $Logfile = $Global:logfile
     )
+
+    shuffle-logs $MaxLogFileSize $Logfile
+
     # Deal with the colour
     $1 = 'T'
     if ($Warning -or $Debug_ -or $Error_ -or $Message) {
@@ -151,20 +154,21 @@ function log {
             $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
         } elseif ($Error_)  {
             $1 = 'E'
-            $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
+            $Colour = ($null,$Colour,'RED' -ne $null)[0]
         } elseif ($Debug_) {
             $1 = 'D'
         } elseif ($Message) {
             $1 = 'I'
         }
     }
+    $Colour = ($null,$Colour,'WHITE' -ne $null)[0] # Make sure the message is white if there's nothingg previously set
 
     if ($Message -and -not $silent) {
-        write-host $String -foregroundcolor $Color  
+        write-host $String -foregroundcolor $Color
     }
     
     $stageSection = $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
-    $timestamp = (Get-Date -format "yy-MM-dd HH:mm:ss.") + "{0:D3}" -f (Get-Date).Millisecond
+    $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
     ($1 + " " + $stageSection + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
 }
 
