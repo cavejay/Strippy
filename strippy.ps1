@@ -50,11 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-<<<<<<< HEAD
-    Version: 2.170926
-=======
     Version: 2.171018
->>>>>>> master
     Compatability: Powershell 5+
 
 .LINK
@@ -182,14 +178,9 @@ function log {
 # This cuts down the amount of files necessary to move between computers and makes it easier to give to someone and say "run this"
 # $SelfContained = $false # Not really implemented yet.
 
-<<<<<<< HEAD
-## Variables: (Over written by any config file)
-$Config = @{"origin"="default"}
-=======
 ## Variables: (Over written by any config file and include all the command line variables)
 # Priority of inputs: Default -> Configfile -> cmdline input
 $Config = @{}
->>>>>>> master
 $Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
 $Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
 $Config.KeyListFirstline = "This keylist was created at {0}."
@@ -222,8 +213,6 @@ if ( $Verbose -and -not $Silent) {
     $DebugPreference = 'Continue'
 }
 
-<<<<<<< HEAD
-=======
 #Check if we're _just_ creating a default config file
 if ( $MakeConfig ) {
     $confloc = Join-Path $( Get-Location ) strippy.conf
@@ -269,7 +258,6 @@ KeyListFirstLine="This keylist was created at {0}."
     exit 0
 }
 
->>>>>>> master
 # Usage
 if ( $File -eq "" ) {
     Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
@@ -334,15 +322,9 @@ function write-when-normal {
 }
 
 ## Process Config file 
-<<<<<<< HEAD
-function proc-config-file ( $cf ) {
-    $stages = @('UseMe', 'Config', 'Rules')
-    $validLineKey = @('UseMe', 'IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename')
-=======
  function proc-config-file ( $cf ) {
     $stages = @('Switches', 'Config', 'Rules')
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
->>>>>>> master
     $stage = 0; $lineNum = 0
 
     $config = @{flags=@()}
@@ -350,10 +332,6 @@ function proc-config-file ( $cf ) {
     $lines = $cf -split "`r?`n"
     ForEach ( $line in $lines ) {
         $lineNum++
-<<<<<<< HEAD
-
-=======
->>>>>>> master
         # Do some checks about the line we're on
         if ( $line -match "^\s*;" ) {
             write-verbose "skipped comment: $line"
@@ -400,22 +378,6 @@ function proc-config-file ( $cf ) {
             $lineKey = $matches.groups[1].value
             $lineValue = $matches.groups[2].value
             # If we're not reading rules and we don't recognise the key, show a warning
-<<<<<<< HEAD
-            if ( $stages[$stage] -ne "Rules" -and $validLineKey -notcontains $lineKey ) {
-                Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
-                Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
-            }
-        }
-
-        # Action lines based on stage
-        switch ( $stages[$stage] ) {
-            'UseMe' {
-                # Use a switch for easy adding if there's more
-                switch ( $lineKey ) {
-                    'UseMe' {
-                        $Config.UseMe = $lineValue -eq "true"
-                    }
-=======
             if ( $stages[$stage] -eq "Config" -and $validLineKey -notcontains $lineKey ) {
                 Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
                 Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
@@ -442,7 +404,6 @@ function proc-config-file ( $cf ) {
                     'Silent' {$Config.Silent = $lineValue -eq "true"}
                     'Recurse' {$Config.Recurse = $lineValue -eq "true"}
                     'InPlace' {$Config.InPlace = $lineValue -eq "true"}
->>>>>>> master
                     Default {
                         Write-Warning "CONFIG: Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
@@ -454,13 +415,8 @@ function proc-config-file ( $cf ) {
                     $config[$lineKey] = $lineValue -match "true"
 
                 # Array option
-<<<<<<< HEAD
-                } elseif ($false) {
-
-=======
                 } elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
                     $config[$lineKey] = ($lineValue[1..($lineValue.length-2)] -join '') -split "`",\s*`""
->>>>>>> master
 
                 # String option
                 } elseif ($lineValue[0] -eq '"' -and $lineValue[-1] -eq '"') {
@@ -480,8 +436,6 @@ function proc-config-file ( $cf ) {
 
                     # Add the rule to the flags array
                     $config.flags += [System.Tuple]::Create($lineKey,$lineValue)
-<<<<<<< HEAD
-=======
                 } elseif ($line -match '^".*"=\\delete\s*$') {
                     $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
                     if ($config.killerflag) {
@@ -489,7 +443,6 @@ function proc-config-file ( $cf ) {
                     } else {
                         $config.killerflag = "$flagtoremoveentirely"
                     }
->>>>>>> master
                 } else {
                     Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
                     Found as Key: |$lineKey| & Value: |$lineValue|"
@@ -503,12 +456,7 @@ function proc-config-file ( $cf ) {
     }
 
     Write-Verbose "config is here`n$($config | Out-String)`n`n"
-<<<<<<< HEAD
-    # $config.flags | % { Write-host "$($_.Item1)->$($_.Item2)" }
-    $config.origin = $ConfigFile # store where the config is from
-=======
     # $config.origin = $ConfigFile # store where the config is from
->>>>>>> master
     return $config
 }
 
@@ -722,14 +670,10 @@ $JobFunctions = {
                     Write-Verbose "Recognised as: $($k.key)"
                 
                 # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
-<<<<<<< HEAD
-                } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { $val = ($mval -eq $_) -or $val } {$val} ) {
-=======
                 } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { 
                     write-verbose "Checking $mval against $_`: $($mval -eq $_) or $val"
                     $val = ($mval -eq $_) -or $val 
                 } {$val} ) {
->>>>>>> master
                     Write-Verbose "Found ignored string: $mval"
     
                 # Create a key and assign it to the match
@@ -765,11 +709,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
             Find-Keys $file $flags $IgnoredStrings $killerFlags
             Write-Verbose "Found all the keys in $file"
         } 
-<<<<<<< HEAD
-        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$VerbosePreference
-=======
         $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$killerFlags,$VerbosePreference
->>>>>>> master
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
@@ -816,11 +756,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 
             $exportedFileName
         }
-<<<<<<< HEAD
-        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
-=======
         $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$killerFlags,$inPlace,$VerbosePreference
->>>>>>> master
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
@@ -948,11 +884,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
 
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
-<<<<<<< HEAD
-    $keylists = Scout-Stripper $files $script:Config.flags $rootFolder
-=======
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
->>>>>>> master
     Write-Verbose "finished finding keys"
     
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
@@ -990,26 +922,11 @@ if ( $ConfigFile ) {
 }
 
 # If we didn't get told what config to use, check locally for a 'UseMe' config file
-<<<<<<< HEAD
-if (-not $configUsed -and -not $SelfContained) {
-=======
 if (-not $configUsed <# -and -not $SelfContained #>) {
->>>>>>> master
     $configText = ''
     try {
         $tmp_f = join-path $( Get-location ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
-<<<<<<< HEAD
-        
-        # todo This will need to check all local .conf files to work properly this does nothing atm
-        # # Check it has the UseMe field set to true before continuing
-        # if ( $configText -match 'UseMe\s*=\s*true' ) { # should probs test this
-            #     
-            # } else {
-                #     Write-Verbose "Ignored local config file due to false or missing UseMe value."
-                # }   
-=======
->>>>>>> master
     } catch {
         Write-Warning "SETUP: Could not find or read 'strippy.conf' in $(get-location)"
     }
