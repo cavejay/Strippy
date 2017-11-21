@@ -124,9 +124,17 @@ param (
 
 ## Setup Log functions
 function shuffle-logs ($MaxSize, $LogFile = $Global:logfile) {
-    
+    if (!(Test-Path $LogFile)) {
+        return # if the log file doesn't exist then we don't need to do anything
+    } elseif ((Get-Item $logfile).Length -le $MaxSize) {
+        return # the log file is still too small
+    }
+
+    # This is when we shuffle the logs
+    write-host "need to shuffle the logs"
 }
 
+$mtx = New-Object System.Threading.Mutex($false, "LoggerMutex")
 
 <#
     logfunction. Default params will log to file with date 
@@ -169,7 +177,11 @@ function log {
     
     $stageSection = $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
     $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
-    ($1 + " " + $stageSection + " " + $timestamp + "   " + $String) | Out-File -Filepath $Logfile -Append
+    $logMessage = ($1 + " " + $stageSection + " " + $timestamp + "   " + $String)
+    if ($mtx.WaitOne()) {
+        $logMessage | Out-File -Filepath $Logfile -Append
+        [void]$mtx.ReleaseMutex()
+    }
 }
 
 # Special Variables: (Not overwritten by config files)
@@ -491,6 +503,8 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
+    . $mtx
+
     function eval-config-string ([string] $str) {
         Write-Verbose "config string |$str| is getting eval'd"
         $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
