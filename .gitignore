@@ -3,6 +3,10 @@
 !.gitignore
 !strippy.ps1
 !tests
+<<<<<<< HEAD
 !*.Tests.ps1
 !strippy.conf
 !leftover.txt
+=======
+!*.Tests.ps1
+>>>>>>> master

@@ -50,7 +50,11 @@
 
 .NOTES
     Author: Michael Ball
+<<<<<<< HEAD
     Version: 2.170926
+=======
+    Version: 2.171018
+>>>>>>> master
     Compatability: Powershell 5+
 
 .LINK
@@ -58,17 +62,19 @@
 #>
 
 # Todo
+# combine AlternateKeyListOutput and keylistfile config settings. 
 # Dealing with selections of files a la "server.*.log" or similar
-# Make -Silent print output to a file?
+# Add support/warning for ps 4
+# Use PS-InlineProgress or check and then use it if we're in the exe version
+# Switch to add strippy to your ps profile for quick running
+# Logging
 # Have option for diagnotics file or similar that shows how many times each rule was hit
-# Print/Sanitising sometimes breaks?
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 # More intellient capitalisation resolution.
 # Move from jobs to runspaces?
-# Add support/warning for ps 4
+# Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
@@ -77,22 +83,14 @@
 
 [CmdletBinding()]
 param (
-    # A shortcut for -File
-    [String] $f,
     # The File or Folder you wish to sanitise
-    [String] $File = $f,
-    # A shortcut for -Silent
-    [Switch] $si = $false,
+    [String] $File,
     # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
-    [Switch] $Silent = $si,
-    # A shortcut for -Recurse
-    [Switch] $r = $false,
+    [Switch] $Silent = $false,
     # Looks for log files throughout a directory tree rather than only in the first level
-    [Switch] $Recurse = $r,
-    # A shortcut for -InPlace
-    [Switch] $i = $false,
+    [Switch] $Recurse = $false,
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    [Switch] $InPlace = $i,
+    [Switch] $InPlace = $false,
     # Creates a barebones strippy.conf file for the user to fill edit
     [Switch] $MakeConfig,
     # Perform logging for this execution
@@ -107,19 +105,14 @@ param (
     [String] $o, 
     # Specifies an alternate path or file for the sanitised file
     [String] $AlternateOutputFolder = $o, 
-    # A shortcut for -KeyFile
-    [String] $k,
     # Specifies a previously generated keylist file to import keys from for this sanitisation
-    [String] $KeyFile = $k, 
+    [String] $KeyFile, 
     # Archive the folder or file after sanitising it
     # [switch] $zip, 
-    [String] $c,
     # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $ConfigFile = $c,
-    # A shortcut for -MaxThreads
-    [int] $m = 5,
+    [String] $ConfigFile,
     # How threaded can this process become?
-    [int] $MaxThreads = $m
+    [int] $MaxThreads = 5
 )
 
 ## Setup Log functions
@@ -187,10 +180,16 @@ function log {
 # Special Variables: (Not overwritten by config files)
 # If this script is self contained then all config is specified in the script itself and config files are not necessary or requested for. 
 # This cuts down the amount of files necessary to move between computers and makes it easier to give to someone and say "run this"
-$SelfContained = $false
+# $SelfContained = $false # Not really implemented yet.
 
+<<<<<<< HEAD
 ## Variables: (Over written by any config file)
 $Config = @{"origin"="default"}
+=======
+## Variables: (Over written by any config file and include all the command line variables)
+# Priority of inputs: Default -> Configfile -> cmdline input
+$Config = @{}
+>>>>>>> master
 $Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','applications',"")
 $Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
 $Config.KeyListFirstline = "This keylist was created at {0}."
@@ -201,6 +200,7 @@ $Config.KeyFileName = "KeyList.txt"
 
 # General config 
 $PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
+$_tp = 992313 # top Progress
 
 # Flags
 $Config.flags = New-Object System.Collections.ArrayList
@@ -222,6 +222,54 @@ if ( $Verbose -and -not $Silent) {
     $DebugPreference = 'Continue'
 }
 
+<<<<<<< HEAD
+=======
+#Check if we're _just_ creating a default config file
+if ( $MakeConfig ) {
+    $confloc = Join-Path $( Get-Location ) strippy.conf
+    $defaultConfig = '; Strippy Config file
+UseMe=true
+;Recurse=true
+;InPlace=false
+;Silent=false
+;MaxThreads=5
+
+[ Config ]
+IgnoredStrings="/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications", ""
+
+; These settings can use braces to include dynamic formatting: 
+; {0} = Date/Time at processing
+; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy 
+SanitisedFileFirstLine="This file was Sanitised at {0}.`r`n==`r`n`r`n"
+KeyListFirstLine="This keylist was created at {0}."
+;KeyFileName="Keylist.txt"
+;AlternateOutputFolder=".\sanitisedoutput"
+
+[ Rules ]
+;"Some Regex String here"="Replacement here"
+"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]"="Address"
+"\\\\([\w\-.]*?)\\"="Hostname"
+'
+
+    # Check to make sure we're not overwriting someone's config file
+    if ( Test-Path $( $confloc ) ) {
+        Write-Information "A config file already exists. Would you like to overwrite it with the default?"
+        $ans = Read-Host "y/n> (n) "
+        if ( $ans -ne 'y' ) {
+            Write-Information "Didn't overwrite the current config file"
+            exit 0
+        } else {
+            Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
+            Write-Information $([IO.file]::ReadAllText($confloc))
+        }
+    }
+
+    $defaultConfig | Out-File -Encoding ascii $confloc
+    Write-Information "Generated config file: $confloc"
+    exit 0
+}
+
+>>>>>>> master
 # Usage
 if ( $File -eq "" ) {
     Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
@@ -286,9 +334,15 @@ function write-when-normal {
 }
 
 ## Process Config file 
+<<<<<<< HEAD
 function proc-config-file ( $cf ) {
     $stages = @('UseMe', 'Config', 'Rules')
     $validLineKey = @('UseMe', 'IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename')
+=======
+ function proc-config-file ( $cf ) {
+    $stages = @('Switches', 'Config', 'Rules')
+    $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
+>>>>>>> master
     $stage = 0; $lineNum = 0
 
     $config = @{flags=@()}
@@ -296,7 +350,10 @@ function proc-config-file ( $cf ) {
     $lines = $cf -split "`r?`n"
     ForEach ( $line in $lines ) {
         $lineNum++
+<<<<<<< HEAD
 
+=======
+>>>>>>> master
         # Do some checks about the line we're on
         if ( $line -match "^\s*;" ) {
             write-verbose "skipped comment: $line"
@@ -343,6 +400,7 @@ function proc-config-file ( $cf ) {
             $lineKey = $matches.groups[1].value
             $lineValue = $matches.groups[2].value
             # If we're not reading rules and we don't recognise the key, show a warning
+<<<<<<< HEAD
             if ( $stages[$stage] -ne "Rules" -and $validLineKey -notcontains $lineKey ) {
                 Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
                 Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
@@ -357,6 +415,34 @@ function proc-config-file ( $cf ) {
                     'UseMe' {
                         $Config.UseMe = $lineValue -eq "true"
                     }
+=======
+            if ( $stages[$stage] -eq "Config" -and $validLineKey -notcontains $lineKey ) {
+                Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
+                Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
+            }
+        } else { # if we didn't match the above then we're broke so quit
+            Write-Verbose "Could not parse line $linenum as a ini config line. Creating an error"
+            Write-Error "CONFIG: Unable to parse config on line $linenum`: $line"
+            exit -1
+        }
+
+        # Action lines based on stage
+        switch ( $stages[$stage] ) { 
+            'Switches' { # \\todo this is super dodge and needs more validation :( please improve
+                # Use a switch for easy adding if there's more
+                switch ( $lineKey ) {
+                    'MaxThreads' {
+                        if ($lineValue -match "\d*") {
+                            $config.MaxThreads = [convert]::ToInt32($lineValue, 10)
+                        } else {
+                            Write-Verbose "MaxThreads value was not a valid numeric form. Will show a warning and continue with default"
+                            Write-Warning "CONFIG: Maxthreads value was not a valid number. Contining with default value: $script:MaxThreads"
+                        }
+                    }
+                    'Silent' {$Config.Silent = $lineValue -eq "true"}
+                    'Recurse' {$Config.Recurse = $lineValue -eq "true"}
+                    'InPlace' {$Config.InPlace = $lineValue -eq "true"}
+>>>>>>> master
                     Default {
                         Write-Warning "CONFIG: Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
@@ -368,8 +454,13 @@ function proc-config-file ( $cf ) {
                     $config[$lineKey] = $lineValue -match "true"
 
                 # Array option
+<<<<<<< HEAD
                 } elseif ($false) {
 
+=======
+                } elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
+                    $config[$lineKey] = ($lineValue[1..($lineValue.length-2)] -join '') -split "`",\s*`""
+>>>>>>> master
 
                 # String option
                 } elseif ($lineValue[0] -eq '"' -and $lineValue[-1] -eq '"') {
@@ -389,6 +480,16 @@ function proc-config-file ( $cf ) {
 
                     # Add the rule to the flags array
                     $config.flags += [System.Tuple]::Create($lineKey,$lineValue)
+<<<<<<< HEAD
+=======
+                } elseif ($line -match '^".*"=\\delete\s*$') {
+                    $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
+                    if ($config.killerflag) {
+                        $config.killerflag += "|$flagtoremoveentirely"
+                    } else {
+                        $config.killerflag = "$flagtoremoveentirely"
+                    }
+>>>>>>> master
                 } else {
                     Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
                     Found as Key: |$lineKey| & Value: |$lineValue|"
@@ -402,8 +503,12 @@ function proc-config-file ( $cf ) {
     }
 
     Write-Verbose "config is here`n$($config | Out-String)`n`n"
+<<<<<<< HEAD
     # $config.flags | % { Write-host "$($_.Item1)->$($_.Item2)" }
     $config.origin = $ConfigFile # store where the config is from
+=======
+    # $config.origin = $ConfigFile # store where the config is from
+>>>>>>> master
     return $config
 }
 
@@ -579,7 +684,7 @@ $JobFunctions = {
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
-            $content = $content -replace [regex]::Escape($key.value), $key.key
+            $content = $content.Replace($key.value, $key.key)
         }
         Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
@@ -590,12 +695,13 @@ $JobFunctions = {
     }
     
     ## Build the key table for all the files
-    function Find-Keys ( [string] $fp, $flags, $IgnoredStrings ) {
+    function Find-Keys ( [string] $fp, $flags, $IgnoredStrings, [String] $killerFlags ) {
         Write-Verbose "Finding Keys in $fp"
         # dictionary to populate
         $Keys = @{}
         # Open file
-        $f = [IO.file]::ReadAllText( $fp )
+        Write-Verbose "Filtering out lines that match $killerFlags"
+        $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags -join "`r`n"
         
         # Process file for tokens
         $count = 1
@@ -616,7 +722,14 @@ $JobFunctions = {
                     Write-Verbose "Recognised as: $($k.key)"
                 
                 # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
+<<<<<<< HEAD
                 } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { $val = ($mval -eq $_) -or $val } {$val} ) {
+=======
+                } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { 
+                    write-verbose "Checking $mval against $_`: $($mval -eq $_) or $val"
+                    $val = ($mval -eq $_) -or $val 
+                } {$val} ) {
+>>>>>>> master
                     Write-Verbose "Found ignored string: $mval"
     
                 # Create a key and assign it to the match
@@ -638,7 +751,7 @@ $JobFunctions = {
 }
 
 # Takes a file and outputs it's the keys
-function Scout-Stripper ($files, $flags, $rootFolder) {
+function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerFlags, [int] $PCompleteStart, [int] $PCompleteEnd) {
     Write-Verbose "Started scout stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
@@ -646,16 +759,20 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
     ForEach ($file in $files) {
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
-            PARAM($file, $flags, $IgnoredStrings, $vPref)
+            PARAM($file, $flags, $IgnoredStrings, $killerFlags, $vPref)
             # $VerbosePreference = $vPref
 
-            Find-Keys $file $flags $IgnoredStrings
+            Find-Keys $file $flags $IgnoredStrings $killerFlags
             Write-Verbose "Found all the keys in $file"
         } 
+<<<<<<< HEAD
         $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$VerbosePreference
+=======
+        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$killerFlags,$VerbosePreference
+>>>>>>> master
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q $MaxThreads 1 35
+    Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
     Write-Verbose "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
@@ -674,7 +791,7 @@ function Scout-Stripper ($files, $flags, $rootFolder) {
     return $keylists
 }
 
-function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [bool] $inPlace) {
+function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
     Write-Verbose "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
@@ -683,11 +800,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     ForEach ($file in $files) {
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
-            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $inPlace, $vPref)
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $killerFlags, $inPlace, $vPref)
             # $VerbosePreference = $vPref
             # $DebugPreference = $vPref
 
-            $content = [IO.file]::ReadAllText($file)
+            Write-Verbose "Filtering out lines that match $killerFlags"            
+            $content = [IO.file]::ReadAllLines($file) -notmatch $killerFlags -join "`r`n"
             Write-Verbose "Loaded in content of $file"
 
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
@@ -698,10 +816,14 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 
             $exportedFileName
         }
+<<<<<<< HEAD
         $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$inPlace,$VerbosePreference
+=======
+        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$killerFlags,$inPlace,$VerbosePreference
+>>>>>>> master
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
-    Manage-Job $q $MaxThreads 60 99
+    Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
     Write-Verbose "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
@@ -719,7 +841,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     return $sanitisedFilenames
 }
 
-function Merging-Stripper ([Array] $keylists) {
+function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCompleteEnd) {
     . $JobFunctions # Make the gen-key-name function available
 
     # If we only proc'd one file then return that
@@ -733,7 +855,7 @@ function Merging-Stripper ([Array] $keylists) {
     $currentKey = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
-            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId 1
+            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId $_tp
 
             # if new, merged keylist does not contain the key
             if ($output.values -notcontains $keylist.$Key) {
@@ -746,9 +868,9 @@ function Merging-Stripper ([Array] $keylists) {
         }
         $perc = ($keylists.IndexOf($keylist)+1)/($keylists.count)
         write-verbose "Done $($perc*100)% of keylists"
-        Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $($perc*(60-35)+35)
+        Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $($perc*($PCompleteEnd-$PCompleteStart)+$PCompleteStart)
     }
-    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId 1 -Completed
+    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId $_tp -Completed
 
     return $output
 }
@@ -772,7 +894,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
-                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp
                     Write-Verbose "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
@@ -784,7 +906,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                     $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
                     Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $perc
 
-                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId 1 -Complete
+                    Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp -Complete
                     ## Clear all progress entries so we don't process it again
                     $Child.Progress.Clear()
                 }
@@ -807,39 +929,43 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
         }
 
         ## Setting for loop processing speed
-        Start-Sleep -Milliseconds 1000
+        Start-Sleep -Milliseconds 500
     }
 
     # Ensure all progress bars are cleared
     ForEach ($Job in Get-Job) {
-        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId 1 -Complete
+        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId $_tp -Complete
     }    
 }
 
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Clearing background jobs" -PercentComplete 0
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Clearing background jobs" -PercentComplete 0
     Write-Debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
     Write-Debug "removed all background jobs"
-    
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Discovering Keys" -PercentComplete 1
+
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
+<<<<<<< HEAD
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder
+=======
+    $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
+>>>>>>> master
     Write-Verbose "finished finding keys"
     
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Merging Keylists" -PercentComplete 35
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
     if ($importedKeys) { [array]$keylists += $importedKeys }
 
     # Merge all of the keylists into a single dictionary.
-    $finalKeyList = Merging-Stripper $keylists
+    $finalKeyList = Merging-Stripper $keylists 35 60
     Write-Verbose "Finished merging keylists"
 
-    Write-Progress -Activity "Sanitising" -Id 1 -Status "Sanitising separate files" -PercentComplete 60
+    Write-Progress -Activity "Sanitising" -Id $_tp -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
-    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $InPlace
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
     Write-Verbose "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
@@ -864,11 +990,16 @@ if ( $ConfigFile ) {
 }
 
 # If we didn't get told what config to use, check locally for a 'UseMe' config file
+<<<<<<< HEAD
 if (-not $configUsed -and -not $SelfContained) {
+=======
+if (-not $configUsed <# -and -not $SelfContained #>) {
+>>>>>>> master
     $configText = ''
     try {
         $tmp_f = join-path $( Get-location ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
+<<<<<<< HEAD
         
         # todo This will need to check all local .conf files to work properly this does nothing atm
         # # Check it has the UseMe field set to true before continuing
@@ -877,6 +1008,8 @@ if (-not $configUsed -and -not $SelfContained) {
             # } else {
                 #     Write-Verbose "Ignored local config file due to false or missing UseMe value."
                 # }   
+=======
+>>>>>>> master
     } catch {
         Write-Warning "SETUP: Could not find or read 'strippy.conf' in $(get-location)"
     }
@@ -889,7 +1022,7 @@ if (-not $configUsed -and -not $SelfContained) {
 }
 
 # If we still don't have a config then we need user input
-if (-not $configUsed -and -not $SelfContained) {
+if (-not $configUsed <# -and -not $SelfContained #>) {
     # If we were running silent mode then we should end specific error code There
     if ( $Silent ) {
         Write-Error "SETUP: Unable to locate config file. Please specify location using -ConfigFile flag or ensure strippy.conf exists in $(get-location)"
@@ -1020,14 +1153,14 @@ if ($AlternateOutputFolder) {
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
 
-Write-Progress -Activity "Sanitising" -Id 1 -Status "Outputting Keylist" -PercentComplete 99
+Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -PercentComplete 99
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 Write-Information "`n==========================================================================`nProcessed Keys:"
 if (-not $Silent) {$finalKeyList}
 
-Write-Progress -Activity "Sanitising" -Id 1 -Status "Finished" -PercentComplete 100
+Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
-Write-Progress -Activity "Sanitising" -Id 1 -Completed
+Write-Progress -Activity "Sanitising" -Id $_tp -Completed
 Clean-Up
