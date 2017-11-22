@@ -123,6 +123,7 @@ function shuffle-logs ($MaxSize, $LogFile = $Global:logfile) {
     write-host "need to shuffle the logs"
 }
 
+# Create a mutex for the rest of the execution
 $mtx = New-Object System.Threading.Mutex($false, "LoggerMutex")
 
 <#
@@ -298,6 +299,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
 # This should be run before the script is closed
 function Clean-Up () {
     # output-keylist # This should no longer be needed.
+    $mtx.Dispose()
 
     ## Cleanup
     $VerbosePreference = $oldVerbosityPref
@@ -556,7 +558,7 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
-    . $mtx
+    $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
 
     function eval-config-string ([string] $str) {
         Write-Verbose "config string |$str| is getting eval'd"
@@ -632,7 +634,11 @@ $JobFunctions = {
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
             Write-Debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
+            
+            # Do multiple replaces with different types of the string to catch weird/annoying cases
             $content = $content.Replace($key.value, $key.key)
+            $content = $content.Replace($key.value.toString().toUpper(), $key.key)
+            $content = $content.Replace($key.value.toString().toLower(), $key.key)
         }
         Write-Progress -Activity "Sanitising $filename" -Completed -PercentComplete 100
     
