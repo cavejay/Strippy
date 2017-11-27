@@ -128,6 +128,9 @@ $mtx = New-Object System.Threading.Mutex($false, "LoggerMutex")
 
 <#
     logfunction. Default params will log to file with date 
+
+    Use enums
+    https://www.sapien.com/blog/2015/01/05/enumerators-in-windows-powershell-5-0/
 #>
 function log {
     [CmdletBinding()]
