@@ -50,7 +50,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.171018
+    Version: 2.0.1 - 171202
     Compatability: Powershell 5+
 
 .LINK
@@ -802,8 +802,13 @@ $JobFunctions = {
         # dictionary to populate
         $Keys = @{}
         # Open file
-        Write-Verbose "Filtering out lines that match $killerFlags"
-        $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags -join "`r`n"
+
+        if ($killerFlags) {
+            Write-Verbose "Filtering out lines that match $killerFlags"
+            $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags -join "`r`n"
+        } else {
+            $f = [IO.file]::ReadAllLines( $fp ) -join "`r`n"
+        }
         
         # Process file for tokens
         $count = 1
@@ -898,8 +903,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
             # $VerbosePreference = $vPref
             # $DebugPreference = $vPref
 
-            Write-Verbose "Filtering out lines that match $killerFlags"            
-            $content = [IO.file]::ReadAllLines($file) -notmatch $killerFlags -join "`r`n"
+            if ($killerFlags) {
+                Write-Verbose "Filtering out lines that match $killerFlags"
+                $content = [IO.file]::ReadAllLines($file) -notmatch $killerFlags -join "`r`n"
+            } else {
+                $content = [IO.file]::ReadAllLines($file) -join "`r`n"
+            }
             Write-Verbose "Loaded in content of $file"
 
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
