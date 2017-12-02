@@ -134,6 +134,7 @@ Enum LEnum {
     Warning
     Debug
     Error
+    Question # Use this to show a prompt for user input
     Message # This is the log type that's printed and coloured
 }
 
@@ -168,6 +169,12 @@ function log {
             $1 = 'I'
             $display = $true
             $Colour = ($null,$Colour,'WHITE' -ne $null)[0]
+            break
+        }
+        "Question" {
+            $1 = 'Q'
+            $display = $true
+            $Colour = ($null,$Colour,'CYAN' -ne $null)[0]
             break
         }
         "Debug" {  
@@ -313,7 +320,7 @@ KeyListFirstLine="This keylist was created at {0}."
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
         log mkconf debug "There is already a file at: $confloc. Polling user for action"
-        log Mkconf message "A config file already exists. Would you like to overwrite it with the default?"
+        log Mkconf question "A config file already exists. Would you like to overwrite it with the default?"
         $ans = Read-Host "y/n> (n) "
         log Mkconf trace "User answered with: '$ans'"
         if ( $ans -ne 'y' ) {
@@ -343,6 +350,7 @@ if ( -not (Test-Path $File) ) {
     exit -1
 }
 
+log gen debug "[Start] Loading function definitions"
 #######################################################################################33
 # Function definitions
 
@@ -981,100 +989,122 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     return $finalKeyList, $sanitisedFilenames
 }
 
+log gen debug "[End] Loading function definitions"
+
 ####################################################################################################
 # Start Actual Execution
 
 # Handle config loading
-log MAIN message "Starting the config loading process"
+log gen debug "[Start] Config Checking/Loading"
 $configUsed = $false
-if ( $ConfigFile ) {
+if ( $script:ConfigFile ) {
+    log cfgchk trace "Attempting to load the provided config file: $Script:ConfigFile"
     try {
         $tmp = Get-Item $ConfigFile
         $configText = [IO.file]::ReadAllText($tmp.FullName)
+        log cfgchk debug "Successfully loaded the data from $($tmp.FullName)"
     } catch {
-        Write-Error "Error: Could not load from Specified config file: $Config"
+        log cfgchk error "Could not load from Specified config file: $Config`r`nExiting Script"
         exit -1
     }
-    Write-Verbose "Processing specified Config file"
+    log cfgchk trace "Processing specified Config file"
     $script:Config = proc-config-file $configText
-    Write-Verbose "Finished Processing Config file"
+    log cfgchk trace "Finished Processing Config file. Skipping further config checks"
+    $configUsed = $true
 }
 
-# If we didn't get told what config to use, check locally for a 'UseMe' config file
-if (-not $configUsed <# -and -not $SelfContained #>) {
+# if there was not a config successfully loaded in the last step then check around the script directory for a 'default file'
+if (-not $configUsed) {
+    log cfgchk trace "Config file was not successfully loaded or there was no config file provided."
+    log cfgchk trace "Checking script's directory ($PSScriptRoot) for valid config file"
     $configText = ''
     try {
         $tmp_f = join-path $( PSScriptRoot ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
+        log cfgchk debug "Successfully loaded the data from $($tmp.FullName)"
     } catch {
-        Write-Warning "SETUP: Could not find or read 'strippy.conf' in $(get-location)"
+        log cfgchk warning "Could not find or read 'strippy.conf' in $PSScriptRoot. User will need to be prompted"
     }
 
     if ($configText) {
-        Write-Verbose "Found local default config file to use, importing it's settings"
+        log cfgchk trace "Found local default config file to use, attempting to import it's settings"
         $Script:Config = proc-config-file $configText
+        log cfgchk trace "Finished Processing Config file. Skipping further config checks"
         $configUsed = $true
     }
 }
 
 # If we still don't have a config then we need user input
-if (-not $configUsed <# -and -not $SelfContained #>) {
+if (-not $configUsed) {
+    log cfgchk trace "Failed to find config file at script's location. Will need to ask user for input"
     # If we were running silent mode then we should end specific error code There
     if ( $Silent ) {
-        Write-Error "SETUP: Unable to locate config file. Please specify location using -ConfigFile flag or ensure strippy.conf exists in $(get-location)"
-        exit -9
+        log cfgchk trace "Script is in Silent mode. Unable to prompt user and so will error and exit"
+        log cfgchk error "Unable to locate config file. Please specify location using -ConfigFile flag or ensure strippy.conf exists in $(get-location)"
+        throw "No config file"
     }
 
-    $ans = Read-Host "Unable to find a strippy.conf file. This file contains the rules that are used to determine sensitive data.
+    log cfgchk question "Unable to find a strippy.conf file. This file contains the rules that are used to determine sensitive data.
     Continuing now will use the default configuration and only sanitise IP addresses and Windows UNC paths.
-    Would you like to continue with only these? 
-    y/n> (y) "
+    Would you like to continue with only these?"
+    $ans = Read-Host "y/n> (y) "
+    log cfgchk trace "User answered with: '$ans'"
     if ( $ans -eq 'n' ) {
-        # Could us another question here to ask if the user would like to make a config file
-        Write-Information "Use the -MakeConfig argument to create a strippy.conf file and start adding sensitive data rules"
-        exit 0;
+        # todo refactor makeconfig functionality into a function and call from here with additional question
+        log cfgchk message "Use the -MakeConfig argument to create a strippy.conf file and start adding sensitive data rules. Script will now exit"
+        exit
     } else {
         # Use default flags mentioned in the thingy
+        log cfgchk trace "User has chosen to use the default flags to sanitise the file(s)"
         $script:config.flags = $defaultFlags
     }
 }
+log gen debug "[End] Config Checking/Loading"
 
 # // todo this could/should be a function
+log gen debug "[Start] KeyList Checking/Loading"
 $importedKeys = $null
 if ( $KeyFile ) {
     # Check the keyfile is legit before we start.
-    Write-Verbose "Checking the KeyFile"
+    log keychk trace "User provided key file. Checking it's legitimacy"
     if ( Test-Path $KeyFile ) {
         $kf = Get-Item $KeyFile
-        Write-Verbose "Key File exists and is: '$kf'"
+        log keychk trace "Key File exists and is: '$kf'"
     } else {
-        Write-Error "Error: $KeyFile could not be found"
+        log keychk error "$KeyFile could not be found. Test-Path failed to find '$Keyfile'"
         exit -1
     }
 
     if ( $kf.Mode -eq 'd-----' ) {
-        Write-Error "Error: $KeyFile cannot be a directory"
-        Write-Verbose $kf.Mode
+        log keychk error "$KeyFile cannot be a directory"
+        log keychk trace "KeyFile had a mode of $($kf.Mode)"
         exit -1
     } elseif ( $kf.Extension -ne '.txt') {
-        Write-Error "Error: $KeyFile must be a .txt"
-        Write-Verbose "Key file was a '$( $kf.Extension )'"
+        log keychk error "$KeyFile must be a .txt"
+        log keychk trace "Key file had an extension of '$( $kf.Extension )'"
         exit -1
     }
     # Assume it's a valid format for now and check in the proc-keyfile function
 
-    Write-Information "Importing Keys from $KeyFile"
+    log keychk message "Importing Keys from $KeyFile"
     $importedKeys = proc-keyfile $kf.FullName # we need the fullname to load the file in
-    Write-Information "Finished Importing Keys from keyfile:"
-    if (-not $Silent) {$importedKeys}
+    log keychk message "Finished Importing Keys from keyfile:"
+    if ($Silent) {
+        $importedKeys
+        log keychk trace "Contents of Imported Keylist: `r`n$importKeys"
+    }
 }
+log gen debug "[End] KeyList Checking/Loading"
 
-Write-Verbose "Attempting to Santise $File"
+log strppy message "Attempting to Santise $File"
 $File = $(Get-Item $File).FullName
+log strppy debug "Resolved input file/folder to $File"
 
+log gen debug "[Start] Input/Output Discovery Process"
 ## Build the list of files to work on
 $filesToProcess = @()
 $OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
+log strppy trace "Default output folder is: $OutputFolder"
 
 # is it a directory?
 $isDir = Test-Path -LiteralPath $file -PathType Container
@@ -1145,6 +1175,7 @@ if ($AlternateOutputFolder) {
     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
     Write-Information "Using Alternate Folder for output: $OutputFolder"
 }
+log gen debug "[End] Input/Output Discovery Process"
 
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
