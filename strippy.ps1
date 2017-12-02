@@ -110,7 +110,9 @@ param (
     # Specifies a config file to use rather than the default local file or no file at all.
     [String] $ConfigFile,
     # How threaded can this process become?
-    [int] $MaxThreads = 5
+    [int] $MaxThreads = 5,
+    # How big can a log file get before it's shuffled
+    [int] $MaxLogFileSize = 10MB
 )
 
 ## Setup Log functions
@@ -161,7 +163,7 @@ function log {
     # Return instantly if this is a debug message and we're not showing debug
     if ($type -eq [Lenum]::Debug -and !$script:showDebug) {return}
 
-    shuffle-logs $MaxLogFileSize $Logfile
+    shuffle-logs $script:MaxLogFileSize $Logfile
 
     # Deal with the colour
     switch ($Type) {
@@ -350,7 +352,7 @@ if ( -not (Test-Path $File) ) {
     exit -1
 }
 
-log gen debug "[Start] Loading function definitions"
+log gen trace "[Start] Loading function definitions"
 #######################################################################################33
 # Function definitions
 
@@ -989,13 +991,13 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     return $finalKeyList, $sanitisedFilenames
 }
 
-log gen debug "[End] Loading function definitions"
+log gen trace "[End] Loading function definitions"
 
 ####################################################################################################
 # Start Actual Execution
 
 # Handle config loading
-log gen debug "[Start] Config Checking/Loading"
+log gen trace "[Start] Config Checking/Loading"
 $configUsed = $false
 if ( $script:ConfigFile ) {
     log cfgchk trace "Attempting to load the provided config file: $Script:ConfigFile"
@@ -1019,11 +1021,13 @@ if (-not $configUsed) {
     log cfgchk trace "Checking script's directory ($PSScriptRoot) for valid config file"
     $configText = ''
     try {
-        $tmp_f = join-path $( PSScriptRoot ) "strippy.conf"
+        $tmp_f = join-path $( $PSScriptRoot ) "strippy.conf"
+        log cfgchk trace "Attempting to read data from $tmp_f"
         $configText = [IO.file]::ReadAllText($tmp_f)
-        log cfgchk debug "Successfully loaded the data from $($tmp.FullName)"
+        log cfgchk debug "Successfully loaded the data from $tmp_f"
     } catch {
-        log cfgchk warning "Could not find or read 'strippy.conf' in $PSScriptRoot. User will need to be prompted"
+        log cfgchk trace "Caught Exception with message: $($_.Exception.Message)"
+        log cfgchk warning "Could not find or read $(join-path $PSScriptRoot "strippy.conf"). User will need to be prompted"
     }
 
     if ($configText) {
@@ -1059,10 +1063,10 @@ if (-not $configUsed) {
         $script:config.flags = $defaultFlags
     }
 }
-log gen debug "[End] Config Checking/Loading"
+log gen trace "[End] Config Checking/Loading"
 
 # // todo this could/should be a function
-log gen debug "[Start] KeyList Checking/Loading"
+log gen trace "[Start] KeyList Checking/Loading"
 $importedKeys = $null
 if ( $KeyFile ) {
     # Check the keyfile is legit before we start.
@@ -1094,43 +1098,53 @@ if ( $KeyFile ) {
         log keychk trace "Contents of Imported Keylist: `r`n$importKeys"
     }
 }
-log gen debug "[End] KeyList Checking/Loading"
+log gen trace "[End] KeyList Checking/Loading"
 
 log strppy message "Attempting to Santise $File"
 $File = $(Get-Item $File).FullName
 log strppy debug "Resolved input file/folder to $File"
 
-log gen debug "[Start] Input/Output Discovery Process"
+log gen trace "[Start] Input/Output Discovery Process"
 ## Build the list of files to work on
 $filesToProcess = @()
 $OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
-log strppy trace "Default output folder is: $OutputFolder"
+log ioproc trace "Default output folder is: $OutputFolder"
 
 # is it a directory?
 $isDir = Test-Path -LiteralPath $file -PathType Container
 if ( $isDir ) {
-    Write-Verbose "$File is a folder"
+    log ioproc trace "$File is a folder"
 
     # Get all the files
     if ($Recurse) {
-        Write-Verbose "Recursive mode means we get all the files"
+        log ioproc trace "Recursive mode means we get all the files"
         $files = Get-ChildItem $File -Recurse -File
+        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
     } else {
-        Write-Verbose "Normal mode means we only get the files at the top directory"
+        log ioproc trace "Normal mode means we only get the files at the top directory"
+        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
         $files = Get-ChildItem $File -File
     }
 
     # Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
-    $files = $files | Where-Object { 
-        # ( $_.Extension -eq '.txt' -or $_.Extension -eq '.log' ) -and 
-        ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
+    log ioproc trace "Filter out files that aren't sanitisable"
+    $files = $files | Where-Object {
+        $val = ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
         ( $(Get-MimeType -CheckFile $_.FullName) -match "image") -and -not
         ( $_.name -like '*.sanitised.*')
+
+        if (!$val) {
+            log ioproc trace "[Filtering] $($_.FullName) will not be sanitised"
+        }
+        $val
     } | ForEach-Object {$_.FullName}
+    log ioproc debug "$($files.Length) Files left after filtering: `"$($files -join ', ')`""
 
     # If we didn't find any files clean up and exit
+    log ioproc trace "Checking number of files after filtering"
     if ( $files.Length -eq 0 ) {
-        Write-Error "SETUP: Could not find any appropriate files to sanitise in $File"
+        log ioproc trace "0 files left after filtering. Script will now exit"
+        log ioproc error "Could not find any appropriate files to sanitise in $File"
         Clean-Up
     }
 
@@ -1175,7 +1189,7 @@ if ($AlternateOutputFolder) {
     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
     Write-Information "Using Alternate Folder for output: $OutputFolder"
 }
-log gen debug "[End] Input/Output Discovery Process"
+log gen trace "[End] Input/Output Discovery Process"
 
 # give the head stripper all the information we've just gathered about the task
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
