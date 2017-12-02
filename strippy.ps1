@@ -140,6 +140,8 @@ Enum LEnum {
 <#
     logfunction. Default params will log to file with date 
 
+    Maybe make another type of log that's a 'question' or request for user input. then user input can be logged after it?
+
     Use enums
     https://www.sapien.com/blog/2015/01/05/enumerators-in-windows-powershell-5-0/
 #>
@@ -208,6 +210,7 @@ function log {
 
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log params Trace "Strippy was started with the parameters:"
+log params Trace "Sanitisation Target:              $file"
 log params Trace "Silent Mode:                      $Silent"
 log params Trace "Recursive Searching:              $Recurse"
 log params Trace "In-place sanitisation:            $InPlace"
@@ -233,13 +236,19 @@ $Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0','0.0.0.0','127.0.0.1','name','appl
 $Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
 $Config.KeyListFirstline = "This keylist was created at {0}."
 $Config.KeyFileName = "KeyList.txt"
+log params debug "Default Ignored Strings:          `"$($Config.IgnoredStrings -join '", "')`""
+log params debug "Default Sanitised file header:    $($Config.SanitisedFileFirstLine)"
+log params debug "Default Keylist/file header:      $($Config.KeyListFirstLine)"
+log params debug "Default Keyfile name:             $($Config.KeyFileName)"
 
 ######################################################################
 # Important Pre-script things like usage, setup and commands that change the flow of the tool
 
 # General config 
-$PWD = Get-Location  # todo  - this should be replaced with the inbuilt thing that gets both where the script is and where it's being run
+$PWD = get-location
+log params debug "Initial running location:         $PWD"
 $_tp = 992313 # top Progress
+log params debug "Special ID for top progress bar:  $_tp"
 
 # Flags
 $Config.flags = New-Object System.Collections.ArrayList
@@ -249,21 +258,35 @@ $defaultFlags.AddRange(@(
     [System.Tuple]::Create("((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", 'Address'),
     [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
 ))
+log params debug "Default flags/rules:              $defaultFlags"
 
 # Output Settings
 $oldInfoPref = $InformationPreference
-if ($Silent) { $InformationPreference = "ContinueSilently" } else { $InformationPreference = "Continue" }
+log params debug "Original `$InformationPreference:  $oldInfoPref"
+if ($Silent) { # What happens here if we enabled verbose and debug preferences outside of the script? #todo
+    $InformationPreference = "ContinueSilently"
+    log params debug "Silent mode has set `$InformationPreference to 'ContinueSilently'"
+} else { 
+    $InformationPreference = "Continue"
+    log params debug "Silent mode is not active. `$InformationPreference is set to 'Continue'"
+}
 
 if ( $Verbose -and -not $Silent) {
     $oldVerbosityPref = $VerbosePreference
     $oldDebugPref = $DebugPreference
+    log params debug "Original `$VerbosityPreference: $oldInfoPref"
+    log params debug "Original `$DebugPreference:     $oldInfoPref"
     $VerbosePreference = 'Continue'
     $DebugPreference = 'Continue'
+    log params debug "Verbose Mode is enabled (and silent is not). Both Verbose and Debug Preference have been set to 'Continue'"
+} elseif ($Verbose) {
+    log params debug "Verbose Mode is enabled but so is Silent mode. Verbose and Debug Preferences were unchanged"
 }
 
 #Check if we're _just_ creating a default config file
 if ( $MakeConfig ) {
-    $confloc = Join-Path $( Get-Location ) strippy.conf
+    log mkconf trace "Script launched with the -MakeConfig switch. Script will attempt to make a new, default config file before exiting."
+    $confloc = Join-Path $( Get-Location ) 'strippy.conf'
     $defaultConfig = '; Strippy Config file
 ;Recurse=true
 ;InPlace=false
@@ -289,24 +312,26 @@ KeyListFirstLine="This keylist was created at {0}."
 
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
-        Write-Information "A config file already exists. Would you like to overwrite it with the default?"
+        log mkconf debug "There is already a file at: $confloc. Polling user for action"
+        log Mkconf message "A config file already exists. Would you like to overwrite it with the default?"
         $ans = Read-Host "y/n> (n) "
+        log Mkconf trace "User answered with: '$ans'"
         if ( $ans -ne 'y' ) {
-            Write-Information "Didn't overwrite the current config file"
+            log Mkconf message "Didn't overwrite the current config file. Exiting script"
             exit 0
         } else {
-            Write-Information "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:"
-            Write-Information $([IO.file]::ReadAllText($confloc))
+            log Mkconf message "You overwrote a config file that contained the following. Use this to recreate the file if you stuffed up:`r`n$([IO.file]::ReadAllText($confloc))"
         }
     }
 
     $defaultConfig | Out-File -Encoding ascii $confloc
-    Write-Information "Generated config file: $confloc"
+    log Mkconf message "Generated config file: $confloc"
     exit 0
 }
 
-# Usage
+# Usage todo need to make this usable without the reliance on get-help or powershell in general. 
 if ( $File -eq "" ) {
+    log params trace "Strippy was started with no file. Showing the get-help output for the script and exiting"
     Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
     exit 0
 }
@@ -314,6 +339,7 @@ if ( $File -eq "" ) {
 # Check we're dealing with an actual file
 if ( -not (Test-Path $File) ) {
     Write-Error "$File does not exist"
+    log params error "File does not exist. Exiting script"
     exit -1
 }
 
