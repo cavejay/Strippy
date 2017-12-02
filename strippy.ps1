@@ -93,6 +93,8 @@ param (
     [Switch] $log = $false,
     # The specific log file to log to. This is useless unless the log switch is used
     [String] $logfile = ".\strippy.log",
+    # Show absolutely all log messages. This will create much larger logs
+    [Switch] $showDebug = $false,
     # A shortcut for -AlternateKeylistOutput 
     [String] $ko,
     # Specifies an alternate name and path for the keylist file
@@ -112,7 +114,7 @@ param (
 )
 
 ## Setup Log functions
-function shuffle-logs ($MaxSize, $LogFile = $Global:logfile) {
+function shuffle-logs ($MaxSize, $LogFile = $script:logfile) {
     if (!(Test-Path $LogFile)) {
         return # if the log file doesn't exist then we don't need to do anything
     } elseif ((Get-Item $logfile).Length -le $MaxSize) {
@@ -120,11 +122,20 @@ function shuffle-logs ($MaxSize, $LogFile = $Global:logfile) {
     }
 
     # This is when we shuffle the logs
-    write-host "need to shuffle the logs"
+    write-host "need to write the shuffle logs function"
 }
 
 # Create a mutex for the rest of the execution
 $mtx = New-Object System.Threading.Mutex($false, "LoggerMutex")
+
+# Enum to show what type of log it should be
+Enum LEnum {
+    Trace
+    Warning
+    Debug
+    Error
+    Message # This is the log type that's printed and coloured
+}
 
 <#
     logfunction. Default params will log to file with date 
@@ -135,47 +146,80 @@ $mtx = New-Object System.Threading.Mutex($false, "LoggerMutex")
 function log {
     [CmdletBinding()]
     PARAM (
-        [Parameter (Mandatory=$true,Position=1)][String] $Stage,
-        [Parameter (Mandatory=$true,Position=2)][String] $String,
-        [Parameter (Mandatory=$false,Position=3)][String] $Colour = "",
-        [Parameter (Mandatory=$false,Position=4)][Switch] $Error_ = $false,
-        [Parameter (Mandatory=$false,Position=5)][Switch] $Warning = $false,
-        [Parameter (Mandatory=$false,Position=5)][Switch] $Debug_ = $false,
-        [Parameter (Mandatory=$false,Position=5)][Switch] $Message = $false,
-        [Parameter (Mandatory=$false,Position=6)][String] $Logfile = $Global:logfile
+        [Parameter (Mandatory)][String] $Stage,
+        [Parameter (Mandatory)][LEnum] $Type = [LEnum]::Trace,
+        [Parameter (Mandatory)][String] $String,
+        [System.ConsoleColor] $Colour,
+        [String] $Logfile = $script:logfile
     )
+
+    # Return instantly if this isn't output and we're not logging
+    if ($type -ne [LEnum]::Message -and !$script:log) {return}
+    # Return instantly if this is a debug message and we're not showing debug
+    if ($type -eq [Lenum]::Debug -and !$script:showDebug) {return}
 
     shuffle-logs $MaxLogFileSize $Logfile
 
     # Deal with the colour
-    $1 = 'T'
-    if ($Warning -or $Debug_ -or $Error_ -or $Message) {
-        if ($Warning) {
-            $1 = 'W'
-            $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
-        } elseif ($Error_)  {
+    switch ($Type) {
+        "Message" {  
+            $1 = 'I'
+            $display = $true
+            $Colour = ($null,$Colour,'WHITE' -ne $null)[0]
+            break
+        }
+        "Debug" {  
+            $1 = 'D'
+            break
+        }
+        "Error" {  
             $1 = 'E'
             $Colour = ($null,$Colour,'RED' -ne $null)[0]
-        } elseif ($Debug_) {
-            $1 = 'D'
-        } elseif ($Message) {
-            $1 = 'I'
+            $display = $true
+            $String = "ERROR: $string"
+            break
+        }
+        "Warning" {  
+            $1 = 'W'
+            $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
+            $display = $true
+            $String = "Warning: $string"
+            break
+        }
+        Default { # Trace enums are default. 
+            $1 = 'T'
         }
     }
-    $Colour = ($null,$Colour,'WHITE' -ne $null)[0] # Make sure the message is white if there's nothingg previously set
 
-    if ($Message -and -not $silent) {
-        write-host $String -foregroundcolor $Color
+    if ($display -and -not $silent) {
+        write-host $String -foregroundcolor $Colour
     }
     
-    $stageSection = $(0..4 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+    $stageSection = $(0..6 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
     $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
-    $logMessage = ($1 + " " + $stageSection + " " + $timestamp + "   " + $String)
+    $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
     if ($mtx.WaitOne()) {
         $logMessage | Out-File -Filepath $Logfile -Append
         [void]$mtx.ReleaseMutex()
-    }
+    } 
+    # consider doing something here like: 
+        # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
 }
+
+log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
+log params Trace "Strippy was started with the parameters:"
+log params Trace "Silent Mode:                      $Silent"
+log params Trace "Recursive Searching:              $Recurse"
+log params Trace "In-place sanitisation:            $InPlace"
+log params Trace "Creating a new Config file:       $MakeConfig"
+log params Trace "Logging enabled:                  $log"
+log params Trace "Destination Logfile:              $logfile"
+log params Trace "Showing Debug logging:            $showDebug"
+log params Trace "Alternate Keylist Output file:    $(@('Unset',$AlternateKeyListOutput)[$AlternateKeyListOutput -ne ''])"
+log params Trace "Alternate Output folder files:    $(@('Unset',$AlternateOutputFolder)[$AlternateOutputFolder -ne ''])"
+log params Trace "Key file:                         $(@('Unset',$KeyFile)[$KeyFile -ne ''])"
+log params Trace "Config file:                      $(@('Unset',$ConfigFile)[$ConfigFile -ne ''])"
+log params Trace "Maximum parrallel threads:        $MaxThreads"
 
 # Special Variables: (Not overwritten by config files)
 # If this script is self contained then all config is specified in the script itself and config files are not necessary or requested for. 
@@ -221,7 +265,6 @@ if ( $Verbose -and -not $Silent) {
 if ( $MakeConfig ) {
     $confloc = Join-Path $( Get-Location ) strippy.conf
     $defaultConfig = '; Strippy Config file
-UseMe=true
 ;Recurse=true
 ;InPlace=false
 ;Silent=false
@@ -327,7 +370,7 @@ function write-when-normal {
 }
 
 ## Process Config file 
- function proc-config-file ( $cf ) {
+function proc-config-file ( $cf ) {
     $stages = @('Switches', 'Config', 'Rules')
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
@@ -916,6 +959,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
 # Start Actual Execution
 
 # Handle config loading
+log MAIN message "Starting the config loading process"
 $configUsed = $false
 if ( $ConfigFile ) {
     try {
@@ -934,7 +978,7 @@ if ( $ConfigFile ) {
 if (-not $configUsed <# -and -not $SelfContained #>) {
     $configText = ''
     try {
-        $tmp_f = join-path $( Get-location ) "strippy.conf"
+        $tmp_f = join-path $( PSScriptRoot ) "strippy.conf"
         $configText = [IO.file]::ReadAllText($tmp_f)
     } catch {
         Write-Warning "SETUP: Could not find or read 'strippy.conf' in $(get-location)"
