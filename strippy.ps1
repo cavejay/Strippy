@@ -640,6 +640,72 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
+    # Enum to show what type of log it should be
+    Enum LEnum {
+        Trace
+        Warning
+        Debug
+        Error
+    }
+
+    # Copy of $Script:Log function
+    function log {
+        [CmdletBinding()]
+        PARAM (
+            [Parameter (Mandatory)][String] $Stage,
+            [Parameter (Mandatory)][LEnum] $Type = [LEnum]::Trace,
+            [Parameter (Mandatory)][String] $String,
+            [System.ConsoleColor] $Colour,
+            [String] $Logfile = $script:logfile
+        )
+
+        # Return instantly if we're not logging
+        if (!$script:log) {return}
+        # Return instantly if this is a debug message and we're not showing debug
+        if ($type -eq [Lenum]::Debug -and !$script:showDebug) {return}
+
+        shuffle-logs $script:MaxLogFileSize $Logfile
+
+        # Deal with the colour
+        switch ($Type) {
+            "Debug" {  
+                $1 = 'D'
+                break
+            }
+            "Error" {  
+                $1 = 'E'
+                $Colour = ($null,$Colour,'RED' -ne $null)[0]
+                $display = $true
+                $String = "ERROR: $string"
+                break
+            }
+            "Warning" {  
+                $1 = 'W'
+                $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
+                $display = $true
+                $String = "Warning: $string"
+                break
+            }
+            Default { # Trace enums are default. 
+                $1 = 'T'
+            }
+        }
+
+        if ($display -and -not $silent) {
+            write-host $String -foregroundcolor $Colour
+        }
+        
+        $stageSection = $(0..6 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+        $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
+        $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
+        if ($mtx.WaitOne()) {
+            $logMessage | Out-File -Filepath $Logfile -Append
+            [void]$mtx.ReleaseMutex()
+        } 
+        # consider doing something here like: 
+            # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
+    }
+
     $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
 
     function eval-config-string ([string] $str) {
