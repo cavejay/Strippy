@@ -147,30 +147,17 @@ Enum LEnum {
 
 <#
     logfunction. Default params will log to file with date 
-
-    Maybe make another type of log that's a 'question' or request for user input. then user input can be logged after it?
-
-    Use enums
     https://www.sapien.com/blog/2015/01/05/enumerators-in-windows-powershell-5-0/
 #>
-function log {
-    [CmdletBinding()]
-    PARAM (
-        [Parameter (Mandatory)][String] $Stage,
-        [Parameter (Mandatory)][LEnum] $Type = [LEnum]::Trace,
-        [Parameter (Mandatory)][String] $String,
-        [System.ConsoleColor] $Colour,
-        [String] $Logfile = $script:logfile
-    )
-
+function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String, [System.ConsoleColor] $Colour, [String] $Logfile = $script:logfile) {
     # Return instantly if this isn't output and we're not logging
-    if (@([LEnum]::Message,[LEnum]::Question,[LEnum]::Warning,[LEnum]::Error) -notcontains $type -and !$script:log) {return}
+    if (!$script:log -and @([LEnum]::Message,[LEnum]::Question,[LEnum]::Warning,[LEnum]::Error) -notcontains $type) {return}
     # Return instantly if this is a debug message and we're not showing debug
-    if ($type -eq [Lenum]::Debug -and !$script:showDebug) {return}
+    if (!$script:showDebug -and $type -eq [Lenum]::Debug) {return}
 
     shuffle-logs $script:MaxLogFileSize $Logfile
 
-    # Deal with the colour
+    # Deal with the colouring and metadata
     switch ($Type) {
         "Message" {  
             $1 = 'I'
@@ -209,36 +196,46 @@ function log {
 
     # If we need to display the message check that we're not meant to be silent
     if ($display -and -not $silent) {
-        write-host $String -foregroundcolor $Colour
+        # Error messages require a black background to stand out and mirror powershell's native errors
+        if ($type -eq [LEnum]::Error) {
+            write-host $String -foregroundcolor $Colour -BackgroundColor 'Black'
+        } else {
+            write-host $String -foregroundcolor $Colour
+        }
     }
     
     # Check whether we're meant to log to file
     if (!$script:log) {
         return
     } else {    
-        $stageSection = $(0..6 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+        $stageSection = $(0..5 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
-        if ($mtx.WaitOne()) {
-            $logMessage | Out-File -Filepath $Logfile -Append
-            [void]$mtx.ReleaseMutex()
-        } 
-        # consider doing something here like: 
-            # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
+        try { # This try is to deal specifically when we've destroyed the mutex.
+            if ($mtx.WaitOne()) {
+                $logMessage | Out-File -Filepath $Logfile -Append
+                [void]$mtx.ReleaseMutex()
+            } 
+            # consider doing something here like: 
+                # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
+        } catch [ObjectDisposedException] {
+            "$logMessage - NoMutex" | Out-File -FilePath $logFile -Append
+        }
     }
 }
 
+log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    2.0.1                          ||"
+log init Trace "   ||    Version:    v2.0.1                          ||"
 log params Trace "Strippy was started with the parameters:"
-log params Trace "Sanitisation Target:              $file"
+log params Trace "Sanitisation Target:              $((resolve-path $file -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Silent Mode:                      $Silent"
 log params Trace "Recursive Searching:              $Recurse"
 log params Trace "In-place sanitisation:            $InPlace"
 log params Trace "Creating a new Config file:       $MakeConfig"
 log params Trace "Logging enabled:                  $log"
-log params Trace "Destination Logfile:              $logfile"
+log params Trace "Destination Logfile:              $((resolve-path $logfile -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Showing Debug logging:            $showDebug"
 log params Trace "Alternate Keylist Output file:    $(@('Unset',$AlternateKeyListOutput)[$AlternateKeyListOutput -ne ''])"
 log params Trace "Alternate Output folder files:    $(@('Unset',$AlternateOutputFolder)[$AlternateOutputFolder -ne ''])"
@@ -271,6 +268,8 @@ $PWD = get-location
 log params debug "Initial running location:         $PWD"
 $_tp = 992313 # top Progress
 log params debug "Special ID for top progress bar:  $_tp"
+$_env = $script:log,$script:showDebug,$(resolve-path $script:logfile).path,$script:MaxLogFileSize
+log params debug "Created `$_env variable to pass logging environment to jobs (log, showDebug, logfile, maxLogFileSize): $($_env -join ', ')"
 
 # Flags
 $Config.flags = New-Object System.Collections.ArrayList
@@ -368,12 +367,37 @@ log gen trace "[Start] Loading function definitions"
 #######################################################################################33
 # Function definitions
 
-# This is a dupe of the function in the JobFunction scriptblock 
+# This is a dupe of the same function in the JobFunctions Scriptblock
 function eval-config-string ([string] $str) {
     log evlcfs trace "config string |$str| is getting eval'd"
     $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
     log evlcfs trace "Eval'd to: $out"
     return $out
+}
+
+# This is also a dupe of the function in the JobFunctions Scriptblock :( I can't figure out how to join the 2
+function Get-PathTail ([string] $d1, [string] $d2) {
+    if ($d1 -eq $d2) {return split-Path -Leaf $d1}
+    #codemagicthing
+    [String]::Join('',$($d2[$($d1.length)..$($d2.length-1)],$d1[$($d2.length)..$($d1.length-1)])[$d1 -gt $d2])
+}
+
+# This is also also a dupe of the function in the JobFunctions Scriptblock :( I can't figure out how to join the 2 and this is 3 lots of duped code
+$nameCounts = @{}
+function Gen-Key-Name ( $keys, $token ) {
+    $possiblename = ''; $count = 0
+    do {
+        log gnkynm debug $token.Item2
+        if ( -not $nameCounts.ContainsKey($token.Item2) ) {
+            # If we've not heard of this key before, make it
+            $nameCounts[$token.Item2] = 0
+        }
+
+        $nameCounts[$token.Item2]++ # increment our count for this key 
+        $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
+    } while ( $keys[$possiblename] -ne $null )
+    log gnkynm trace "Had to loop $count times to find new name of '$possiblename'"
+    return $possiblename
 }
 
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
@@ -398,10 +422,13 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
 }
 
 # This should be run before the script is closed
-function Clean-Up () {
+function Clean-Up {
+    [CmdletBinding()]
+    PARAM ([Switch] $NoExit = $false)
     log clnup trace "[START] Script Cleanup"
     # output-keylist # This should no longer be needed.
-    
+    if ($NoExit) {log clnup debug "Cleanup function run with -NoExit arg. Will not exit after running"}
+
     ## Cleanup
     log clnup Debug "Returning preferences to original state"
     $VerbosePreference = $oldVerbosityPref
@@ -414,8 +441,10 @@ function Clean-Up () {
     log clnup trace "Destroying logging Mutex"
     $mtx.Dispose()
     
-    log clnup trace "[END] Script Cleanup. TOTALLY EXPECTING THIS TO FAIL CAUSE WE KILLED THE MUTEX"
-    exit 0
+    log clnup trace "[END] Script Cleanup"
+    if (!$NoExit) {
+        exit 0
+    }
 }
 
 ## Process Config file 
@@ -666,12 +695,28 @@ $JobFunctions = {
     # mtx used to share logging file
     $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
 
+    function shuffle-logs ($MaxSize, $LogFile = $script:logfile) {
+        if (!(Test-Path $LogFile)) {
+            return # if the log file doesn't exist then we don't need to do anything
+        } elseif ((Get-Item $logfile).Length -le $MaxSize) {
+            return # the log file is still too small
+        }
+    
+        # This is when we shuffle the logs
+        write-host "need to write the shuffle logs function"
+    
+        if ($mtx.WaitOne(500)) {
+            write-host "Entered Mutex for shuffling the logs"
+            [void]$mtx.ReleaseMutex()
+        } 
+    }
+
     # Copy of $Script:Log function
     function log {
         [CmdletBinding()]
         PARAM (
             [Parameter (Mandatory)][String] $Stage,
-            [Parameter (Mandatory)][LEnumJ] $Type = [LEnum]::Trace,
+            [Parameter (Mandatory)][LEnumJ] $Type = [LEnumJ]::Trace,
             [Parameter (Mandatory)][String] $String,
             [System.ConsoleColor] $Colour,
             [String] $Logfile = $script:logfile
@@ -680,7 +725,7 @@ $JobFunctions = {
         # Return instantly if we're not logging
         if (!$script:log) {return}
         # Return instantly if this is a debug message and we're not showing debug
-        if ($type -eq [Lenum]::Debug -and !$script:showDebug) {return}
+        if ($type -eq [LenumJ]::Debug -and !$script:showDebug) {return}
 
         shuffle-logs $script:MaxLogFileSize $Logfile
 
@@ -693,14 +738,12 @@ $JobFunctions = {
             "Error" {  
                 $1 = 'E'
                 $Colour = ($null,$Colour,'RED' -ne $null)[0]
-                $display = $true
                 $String = "ERROR: $string"
                 break
             }
             "Warning" {  
                 $1 = 'W'
                 $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
-                $display = $true
                 $String = "Warning: $string"
                 break
             }
@@ -709,19 +752,22 @@ $JobFunctions = {
             }
         }
 
-        if ($display -and -not $silent) {
-            write-host $String -foregroundcolor $Colour
-        }
-        
-        $stageSection = $(0..6 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+        $stageSection = $(0..5 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
-        $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
+        $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   [JOB]  " + $String)
         if ($mtx.WaitOne()) {
-            $logMessage | Out-File -Filepath $Logfile -Append
+            $logMessage | Out-File -Filepath $logfile -Append
             [void]$mtx.ReleaseMutex()
         } 
         # consider doing something here like: 
             # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
+    }
+
+    function log-job-start () {
+        log jobenv trace "Logging enabled:          $($script:log)"
+        log jobenv trace "Showing Debug messages:   $($script:showDebug)"
+        log jobenv trace "Logfile:                  $($script:logfile)"
+        log jobenv trace "Max log file size:        $($script:MaxLogFileSize)"
     }
 
     function eval-config-string ([string] $str) {
@@ -814,7 +860,8 @@ $JobFunctions = {
     
     ## Build the key table for all the files
     function Find-Keys ( [string] $fp, $flags, $IgnoredStrings, [String] $killerFlags ) {
-        log fndkys trace "Finding Keys in $fp"
+        log fndkys trace "[START] Finding Keys from $fp"
+
         # dictionary to populate
         $Keys = @{}
         # Open file
@@ -865,6 +912,7 @@ $JobFunctions = {
         Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
     
         log fndkys trace "Keys: $keys"
+        log fndkys trace "[END] Finding Keys from $fp"
         return $keys
     }
 }
@@ -873,18 +921,18 @@ $JobFunctions = {
 function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerFlags, [int] $PCompleteStart, [int] $PCompleteEnd) {
     log SctStr trace "Started scout stripper"
     $q = New-Object System.Collections.Queue
-    . $JobFunctions # need for using Get-PathTail
 
     ForEach ($file in $files) {
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
-            PARAM($file, $flags, $IgnoredStrings, $killerFlags, $vPref)
-            # $VerbosePreference = $vPref
+            PARAM($file, $flags, $IgnoredStrings, $killerFlags, $_env)
+            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize = $_env
+            log-job-start
 
             Find-Keys $file $flags $IgnoredStrings $killerFlags
             log SctStr trace "Found all the keys in $file"
-        } 
-        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$killerFlags,$VerbosePreference
+        }
+        $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$killerFlags,$_env
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
@@ -909,15 +957,14 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
 function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
     log SanStr trace "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
-    . $JobFunctions # need for using Get-PathTail
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
-            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $killerFlags, $inPlace, $vPref)
-            # $VerbosePreference = $vPref
-            # $DebugPreference = $vPref
+            PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $killerFlags, $inPlace, $_env)
+            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize = $_env
+            log-job-start
 
             if ($killerFlags) {
                 log SanStr trace "Filtering out lines that match $killerFlags"
@@ -935,7 +982,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 
             $exportedFileName
         }
-        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$killerFlags,$inPlace,$VerbosePreference
+        $ArgumentList = $file,$finalKeyList,$script:Config.SanitisedFileFirstline,$OutputFolder,$(@($null,$rootFolder)[$files.Count -gt 1]),$killerFlags,$inPlace,$_env
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
@@ -957,7 +1004,6 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 }
 
 function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCompleteEnd) {
-    . $JobFunctions # Make the gen-key-name function available
 
     # If we only proc'd one file then return that
     if ($keylists.Count -eq 1) {
@@ -1056,28 +1102,32 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Clearing background jobs" -PercentComplete 0
-    log hdStrip debug "Current jobs running are: $(get-job *)"
+    log hdStrp debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
-    log hdStrip debug "removed all background jobs"
+    log hdStrp debug "removed all background jobs"
 
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
+    log hdStrp message "Searching through input file(s) for sensitive data"
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
-    log hdStrip trace "finished finding keys"
+    log hdStrp message "Finshed collecting sensitive data from file(s)"
+    log hdStrp trace "finished finding keys"
     
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
     if ($importedKeys) { [array]$keylists += $importedKeys }
 
     # Merge all of the keylists into a single dictionary.
+    log hdStrp message "Merging key lists to create a master version"
     $finalKeyList = Merging-Stripper $keylists 35 60
-    log hdStrip trace "Finished merging keylists"
+    log hdStrp trace "Finished merging keylists"
 
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
+    log hdStrp message "Sanitising file(s) with master keylist"
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
-    log hdStrip trace "Finished sanitising and exporting files"
+    log hdStrp trace "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
 }
@@ -1107,7 +1157,7 @@ if ( $script:ConfigFile ) {
 }
 
 # if there was not a config successfully loaded in the last step then check around the script directory for a 'default file'
-if (-not $configUsed) {
+if (!$configUsed) {
     log cfgchk trace "Config file was not successfully loaded or there was no config file provided."
     log cfgchk trace "Checking script's directory ($PSScriptRoot) for valid config file"
     $configText = ''
@@ -1130,7 +1180,7 @@ if (-not $configUsed) {
 }
 
 # If we still don't have a config then we need user input
-if (-not $configUsed) {
+if (!$configUsed) {
     log cfgchk trace "Failed to find config file at script's location. Will need to ask user for input"
     # If we were running silent mode then we should end specific error code There
     if ( $Silent ) {
@@ -1188,6 +1238,8 @@ if ( $KeyFile ) {
         $importedKeys
         log keychk trace "Contents of Imported Keylist: `r`n$importKeys"
     }
+} else {
+    log keychk trace "There was no keylist provided by config or user"
 }
 log gen trace "[End] KeyList Checking/Loading"
 
@@ -1302,11 +1354,11 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
 
-log gen message "`n==========================================================================`nProcessed Keys:"
-if (-not $Silent) {$finalKeyList}
+log strppy message "`n==========================================================================`nProcessed Keys:"
+log strppy message "$($finalKeyList | Out-String)"
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
 Write-Progress -Activity "Sanitising" -Id $_tp -Completed
-Clean-Up
+Clean-Up -NoExit
 log gen trace "[End] Wrap up"
