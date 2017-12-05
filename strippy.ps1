@@ -383,7 +383,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     if ( $finalKeyList.Keys.Count -ne 0) {
         # Do we need to put them somewhere else?
         if ( $AlternateKeyListOutput ) {
-            Set-Location $PWD
+            Set-Location $PWD # Should maybe not use PWD here
             New-Item -Force "$AlternateKeyListOutput" | Out-Null
             $kf = $( Get-Item "$AlternateKeyListOutput" ).FullName
         }
@@ -420,7 +420,7 @@ function Clean-Up () {
 
 ## Process Config file 
 function proc-config-file ( $cf ) {
-    log prcconf trace "[START] Processing of Config File"
+    log prccnf trace "[START] Processing of Config File"
     $stages = @('Switches', 'Config', 'Rules')
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
@@ -432,10 +432,10 @@ function proc-config-file ( $cf ) {
         $lineNum++
         # Do some checks about the line we're on
         if ( $line -match "^\s*;" ) {
-            log prcconf trace "skipped comment: $line"
+            log prccnf trace "skipped comment: $line"
             continue
         } elseif ($line -eq '') {
-            log prcconf trace "skipped empty line: $linenum"
+            log prccnf trace "skipped empty line: $linenum"
             continue
         }
 
@@ -444,22 +444,22 @@ function proc-config-file ( $cf ) {
             # is it a valid header structure?
             $matches = [regex]::Matches($line, "^\s*\[ ([\w\s]*) \].*$")
             if ($matches.groups -and $matches.groups.length -gt 1) {} else {
-                log prcconf trace "We found the '[]' for a header but something went wrong"
-                log prcconf error "CONFIG: Error with Header on line $lineNum`: $line"
+                log prccnf trace "We found the '[]' for a header but something went wrong"
+                log prccnf error "CONFIG: Error with Header on line $lineNum`: $line"
                 exit -1
             }
             $headerVal = $matches.groups[1].value
             # bump the stage if we found a valid header
             if ( $stages[$stage+1] -eq $headerVal ) {
-                Write-Verbose "Moving to $($stages[$stage+1]) due to line $linenum`: $line"
+                log prccnf trace "Moving to $($stages[$stage+1]) due to line $linenum`: $line"
                 $stage++
             } elseif ( $stages -notcontains $headerVal ) {
-                Write-Verbose "Tried to move to stage '$headval' at the wrong time on line $linenum`: $line"
-                Write-Error "CONFIG: Valid head '$headerval' in the wrong position on line $linenum`: $line"
+                log prccnf trace "Tried to move to stage '$headval' at the wrong time on line $linenum`: $line"
+                log prccnf error "Valid head '$headerval' in the wrong position on line $linenum`: $line"
                 exit -1
             } else {
-                Write-Verbose "Tried to move to unknown stage '$headval' on line $linenum`: $line"
-                Write-Error "CONFIG: Invalid header '$headerval' on line $linenum`: $line"
+                log prccnf trace "Tried to move to unknown stage '$headval' on line $linenum`: $line"
+                log prccnf error "Invalid header '$headerval' on line $linenum`: $line"
                 exit -1
             }
             continue # if we're still here move to the next line
@@ -469,20 +469,20 @@ function proc-config-file ( $cf ) {
         if ( $line -match "^.*=.*$" ) {
             $matches = [regex]::Matches($line, "^(.*?)=(.*)$")
             if ( $matches.groups -and $matches.groups.length -ne 3 ) {
-                Write-Verbose "Invalid config line. not enough values"
-                Write-Error "CONFIG: Invalid config line. Incorrect format/grouping on line $linenum`: $line"
+                log prccnf trace "Invalid config line. not enough values"
+                log prccnf error "Invalid config line. Incorrect format/grouping on line $linenum`: $line"
                 exit -1
             }
             $lineKey = $matches.groups[1].value
             $lineValue = $matches.groups[2].value
             # If we're not reading rules and we don't recognise the key, show a warning
             if ( $stages[$stage] -eq "Config" -and $validLineKey -notcontains $lineKey ) {
-                Write-Verbose "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
-                Write-Warning "CONFIG: Unrecognised config setting. '$lineKey' on line $linenum`: $line"
+                log prccnf trace "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
+                log prccnf warning "Unrecognised config setting. '$lineKey' on line $linenum`: $line"
             }
         } else { # if we didn't match the above then we're broke so quit
-            Write-Verbose "Could not parse line $linenum as a ini config line. Creating an error"
-            Write-Error "CONFIG: Unable to parse config on line $linenum`: $line"
+            log prccnf trace "Could not parse line $linenum as a ini config line. Creating an error"
+            log prccnf error "Unable to parse config on line $linenum`: $line"
             exit -1
         }
 
@@ -495,15 +495,15 @@ function proc-config-file ( $cf ) {
                         if ($lineValue -match "\d*") {
                             $config.MaxThreads = [convert]::ToInt32($lineValue, 10)
                         } else {
-                            Write-Verbose "MaxThreads value was not a valid numeric form. Will show a warning and continue with default"
-                            Write-Warning "CONFIG: Maxthreads value was not a valid number. Contining with default value: $script:MaxThreads"
+                            log prccnf trace "MaxThreads value was not a valid numeric form. Will show a warning and continue with default"
+                            log prccnf warning "Maxthreads value was not a valid number. Contining with default value: $script:MaxThreads"
                         }
                     }
                     'Silent' {$Config.Silent = $lineValue -eq "true"}
                     'Recurse' {$Config.Recurse = $lineValue -eq "true"}
                     'InPlace' {$Config.InPlace = $lineValue -eq "true"}
                     Default {
-                        Write-Warning "CONFIG: Unknown configuration setting '$lineKey' found on line $linenum`: $line"
+                        log prccnf warning "Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
                 }
             }
@@ -519,9 +519,9 @@ function proc-config-file ( $cf ) {
                 # String option
                 } elseif ($lineValue[0] -eq '"' -and $lineValue[-1] -eq '"') {
                     $Config[$lineKey] = $lineValue[1..($lineValue.length-2)] -join ''
-                    Write-Verbose "Line $linenum stored: Setting: $lineKey, Value: $lineValue"
+                    log prccnf trace "Line $linenum stored: Setting: $lineKey, Value: $lineValue"
                 } else {
-                    Write-Warning "CONFIG: Unrecognised config format on line $linenum`: $line. It Does not seem to be a string, bool or array and so will be ignored"
+                    log prccnf warning "Unrecognised config format on line $linenum`: $line. It Does not seem to be a string, bool or array and so will be ignored"
                 }
             }
             'Rules' {
@@ -542,20 +542,20 @@ function proc-config-file ( $cf ) {
                         $config.killerflag = "$flagtoremoveentirely"
                     }
                 } else {
-                    Write-Warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
+                    log prccnf warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
                     Found as Key: |$lineKey| & Value: |$lineValue|"
                 }
             }
             Default {
-                Write-Error "CONFIG: Something went wrong on line $($lineNum): $line"
+                log prccnf error "Something went wrong on line $($lineNum): $line"
                 exit -1
             }
         }
     }
 
-    Write-Verbose "config is here`n$($config | Out-String)`n`n"
+    log prccnf trace "config is here`n$($config | Out-String)`n`n"
     # $config.origin = $ConfigFile # store where the config is from
-    log prcconf trace "[END] Processing of Config File"
+    log prccnf trace "[END] Processing of Config File"
     return $config
 }
 
@@ -569,7 +569,7 @@ function proc-keyfile ( [string] $kf ) {
     $endOfKeyList = $startOfFileList - 4
 
     if ( $startOfFileList -eq 0 ) {
-        Write-Error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
+        log prckyf error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
         exit -1
     }
 
@@ -577,15 +577,15 @@ function proc-keyfile ( [string] $kf ) {
     foreach ($d in $dataLines) {
         $d = $d -replace '\s+', ' ' -split "\s"
         if ( $d.Length -ne 3) {
-            Write-Error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
+            log prckyf error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
             exit -1
         }
 
-        Write-Verbose "Found Key: $($d[0]) & Value: $($d[1])"
+        log prckyf trace "Found Key: $($d[0]) & Value: $($d[1])"
         $k = $d[0]; $v = $d[1]
 
         if ( $k -eq "" -or $v -eq "") {
-            Write-Error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
+            log prckyf error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
             exit -1
         }
 
@@ -742,7 +742,7 @@ $JobFunctions = {
     function Gen-Key-Name ( $keys, $token ) {
         $possiblename = ''; $count = 0
         do {
-            Write-Debug $token.Item2
+            log gnkynm debug $token.Item2
             if ( -not $nameCounts.ContainsKey($token.Item2) ) {
                 # If we've not heard of this key before, make it
                 $nameCounts[$token.Item2] = 0
@@ -751,7 +751,7 @@ $JobFunctions = {
             $nameCounts[$token.Item2]++ # increment our count for this key 
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
         } while ( $keys[$possiblename] -ne $null )
-        Write-Verbose "Had to loop $count times to find new name of '$possiblename'"
+        log gnkynm trace "Had to loop $count times to find new name of '$possiblename'"
         return $possiblename
     }
 
@@ -764,16 +764,16 @@ $JobFunctions = {
             $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
             $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
             if ($rootFolder) {
-                Write-Verbose "Sanitising a folder, foldername is $rootFolder"
+                log svfile trace "Sanitising a folder, foldername is $rootFolder"
                 $locality = Get-PathTail $(Split-Path $file) $rootFolder
-                Write-Verbose "File is $locality from the root folder"
+                log svfile trace "File is $locality from the root folder"
                 $filenameOUT = Join-Path $OutputFolder $locality 
                 $filenameOut = Join-Path $filenameOUT $sanitisedName
             } else {
                 $filenameOUT = Join-Path $OutputFolder $sanitisedName
             }
         } else {
-            Write-Verbose "Overwriting original file at $file"
+            log svfile trace "Overwriting original file at $file"
             $filenameOUT = $file
         }
     
@@ -782,7 +782,7 @@ $JobFunctions = {
             New-Item -Force $filenameOUT | Out-Null
         }
         $content | Out-File -force -Encoding ascii $filenameOUT
-        Write-Verbose "Written out to $filenameOUT"
+        log svfile trace "Written out to $filenameOUT"
         
         # Return name of sanitised file for use by the keylist
         return "$( $(Get-Date).toString() ) - $filenameOUT"
@@ -790,13 +790,13 @@ $JobFunctions = {
     
     ## Sanitises a file and stores sanitised data in a key
     function Sanitise ( [string] $SanitisedFileFirstLine, $finalKeyList, [string] $content, [string] $filename) {
-        Write-Verbose "Sanitising file: $filename"
+        log Snitis trace "Sanitising file: $filename"
 
         # Process file for items found using tokens in descending order of length. 
         # This will prevent smaller things ruining the text that longer keys would have replaced and leaving half sanitised tokens
         $count = 0
         foreach ( $key in $( $finalKeyList.GetEnumerator() | Sort-Object { $_.Value.Length } -Descending )) {
-            Write-Debug "   Substituting $($key.value) -> $($key.key)"
+            log Snitis debug "   Substituting $($key.value) -> $($key.key)"
             Write-Progress -Activity "Sanitising $filename" -Status "Removing $($key.value)" -Completed -PercentComplete (($count++/$finalKeyList.count)*100)
             
             # Do multiple replaces with different types of the string to catch weird/annoying cases
@@ -814,13 +814,13 @@ $JobFunctions = {
     
     ## Build the key table for all the files
     function Find-Keys ( [string] $fp, $flags, $IgnoredStrings, [String] $killerFlags ) {
-        Write-Verbose "Finding Keys in $fp"
+        log fndkys trace "Finding Keys in $fp"
         # dictionary to populate
         $Keys = @{}
         # Open file
 
         if ($killerFlags) {
-            Write-Verbose "Filtering out lines that match $killerFlags"
+            log fndkys trace "Filtering out lines that match $killerFlags"
             $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags -join "`r`n"
         } else {
             $f = [IO.file]::ReadAllLines( $fp ) -join "`r`n"
@@ -831,40 +831,40 @@ $JobFunctions = {
         foreach ( $token in $flags ) {
             Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.count)*100)
             $pattern = $token.Item1
-            Write-Verbose "Using '$pattern' to find matches"
+            log fndkys trace "Using '$pattern' to find matches"
             $matches = [regex]::matches($f, $pattern)
             
             # Grab the value for each match, if it doesn't have a key make one
             foreach ( $m in $matches ) {
                 $mval = $m.groups[1].value
-                Write-Verbose "Matched: $mval"
+                log fndkys trace "Matched: $mval"
     
                 # Do we have a key already?
                 if ( $Keys.ContainsValue( $mval ) ) {
                     $k =  $Keys.GetEnumerator() | Where-Object { $_.Value -eq $mval }
-                    Write-Verbose "Recognised as: $($k.key)"
+                    log fndkys trace "Recognised as: $($k.key)"
                 
                 # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
                 } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { 
-                    write-verbose "Checking $mval against $_`: $($mval -eq $_) or $val"
+                    log fndkys trace "Checking $mval against $_`: $($mval -eq $_) or $val"
                     $val = ($mval -eq $_) -or $val 
                 } {$val} ) {
-                    Write-Verbose "Found ignored string: $mval"
+                    log fndkys trace "Found ignored string: $mval"
     
                 # Create a key and assign it to the match
                 } else { 
-                    Write-Verbose "Found new token! $( $mval )"
+                    log fndkys trace "Found new token! $( $mval )"
                     $newkey = gen-key-name $Keys $token
                     $Keys[$newkey] = $mval
-                    Write-Verbose "Made new alias: $newkey"
-                    Write-Verbose "Made new key entry: $( $mval ) -> $newkey"
+                    log fndkys trace "Made new alias: $newkey"
+                    log fndkys trace "Made new key entry: $( $mval ) -> $newkey"
                 }
             }
         }
         # Set the bar to full for manage-job
         Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
     
-        Write-Verbose "Keys: $keys"
+        log fndkys trace "Keys: $keys"
         return $keys
     }
 }
@@ -991,7 +991,7 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
 }
 
 function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $ProgressStart, [int] $ProgressEnd) {
-    log jobman trace "Clearing all background jobs (again just in case)"
+    log manjob trace "Clearing all background jobs (again just in case)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
 
@@ -1010,12 +1010,12 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
                     Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp
-                    log jobman trace "Job '$($job.name)' is at $($Progress.PercentComplete)%"
+                    log manjob trace "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
                 ## If this child is complete then stop writing progress
                 If ($Progress.PercentComplete -eq 100 -or $Progress.PercentComplete -eq -1){
-                    log jobman trace "Job '$($Job.name)' has finished"
+                    log manjob trace "Job '$($Job.name)' has finished"
 
                     #Update total progress
                     $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
@@ -1030,16 +1030,16 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
         
         if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
             $NumJobstoRun = @(($MaxJobs-$JobsRunning),$jobQ.Count)[$jobQ.Count -lt ($MaxJobs-$JobsRunning)]
-            log jobman trace "We've completed some jobs, we need to start $NumJobstoRun more"
+            log manjob trace "We've completed some jobs, we need to start $NumJobstoRun more"
             1..$NumJobstoRun | ForEach-Object {
-                log jobman trace "iteration: $_ of $NumJobstoRun"
+                log manjob trace "iteration: $_ of $NumJobstoRun"
                 if ($jobQ.Count -eq 0) {
-                    log jobman trace "There are 0 jobs left. Skipping the loop"
+                    log manjob trace "There are 0 jobs left. Skipping the loop"
                     return
                 }
                 $j = $jobQ.Dequeue()
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
-                log jobman trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
+                log manjob trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
         }
 
@@ -1302,7 +1302,7 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
 
-Write-Information "`n==========================================================================`nProcessed Keys:"
+log gen message "`n==========================================================================`nProcessed Keys:"
 if (-not $Silent) {$finalKeyList}
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
