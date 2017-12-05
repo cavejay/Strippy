@@ -1239,12 +1239,14 @@ if ( $isDir ) {
     # Check that there's actually files.
     # Check that they fit normal file criteria?
     # We process them where they are
-    Write-Error "SETUP: Paths with wildcards are not yet supported"
+    log ioproc trace "User attempted to use a wild-card path rather than a literal one. This is currently unsupported."
+    log ioproc error "Paths with wildcards are not yet supported"
     Clean-Up
-        
+
 # We also want to support archives by treating them as folders we just have to unpack first
 } elseif ( $( get-item $File ).Extension -eq '.zip') {
-    Write-Error "SETUP: Archives are not yet supported"
+    log ioproc trace "User attempted to sanitise a .zip file. This will hopefully be supported in the future. Just unpack it for now."
+    log ioproc error "Archives are not yet supported"
     # unpack
     # run something similar to the folder code above
     # add files that we want to process to $filestoprocess
@@ -1252,7 +1254,7 @@ if ( $isDir ) {
 
 # It's not a folder, so go for it
 } else {
-    Write-Verbose "$File is a file"
+    log ioproc trace "$File is a file. Adding only it to the list of files to process"
     
     # Add the file to process to the list
     $filesToProcess += $(get-item $File).FullName
@@ -1260,15 +1262,26 @@ if ( $isDir ) {
 
 # Redirect the output folder if necessary
 if ($AlternateOutputFolder) {
-    New-Item -ItemType directory -Path $AlternateOutputFolder -Force | Out-Null # Make the new dir
+    log ioproc trace "User has specified an alternate output folder: '$AlternateOutputFolder'. This will need to be made."
+    try{
+        New-Item -ItemType directory -Path $AlternateOutputFolder -Force -ErrorAction stop | Out-Null # Make the new dir
+    } catch {
+        log ioproc error "Failed to create the alternate output folder: '$AlternateOutputFolder'. Error was $($_.Exception.Message)"
+        log ioproc error "Script will need to exit now"
+        Clean-Up
+    }
+    log ioproc trace "Made alternate output folder."
     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
-    Write-Information "Using Alternate Folder for output: $OutputFolder"
+    log ioproc message "Using Alternate Folder for output: $OutputFolder"
 }
 log gen trace "[End] Input/Output Discovery Process"
 
 # give the head stripper all the information we've just gathered about the task
+log gen trace "[Start] File Processing/Sanitising"
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
+log gen trace "[End] File Processing/Sanitising"
 
+log gen trace "[Start] Wrap up"
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -PercentComplete 99
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
@@ -1280,3 +1293,4 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComple
 Start-Sleep 1
 Write-Progress -Activity "Sanitising" -Id $_tp -Completed
 Clean-Up
+log gen trace "[End] Wrap up"
