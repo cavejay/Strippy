@@ -268,7 +268,7 @@ $PWD = get-location
 log params debug "Initial running location:         $PWD"
 $_tp = 992313 # top Progress
 log params debug "Special ID for top progress bar:  $_tp"
-$_env = $script:log,$script:showDebug,$(resolve-path $script:logfile).path,$script:MaxLogFileSize
+$_env = $script:log,$script:showDebug,$(resolve-path $script:logfile -ErrorAction 'SilentlyContinue').path,$script:MaxLogFileSize
 log params debug "Created `$_env variable to pass logging environment to jobs (log, showDebug, logfile, maxLogFileSize): $($_env -join ', ')"
 
 # Flags
@@ -280,29 +280,6 @@ $defaultFlags.AddRange(@(
     [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
 ))
 log params debug "Default flags/rules:              $defaultFlags"
-
-# Output Settings
-$oldInfoPref = $InformationPreference
-log params debug "Original `$InformationPreference:  $oldInfoPref"
-if ($Silent) { # What happens here if we enabled verbose and debug preferences outside of the script? #todo
-    $InformationPreference = "ContinueSilently"
-    log params debug "Silent mode has set `$InformationPreference to 'ContinueSilently'"
-} else { 
-    $InformationPreference = "Continue"
-    log params debug "Silent mode is not active. `$InformationPreference is set to 'Continue'"
-}
-
-if ( $Verbose -and -not $Silent) {
-    $oldVerbosityPref = $VerbosePreference
-    $oldDebugPref = $DebugPreference
-    log params debug "Original `$VerbosityPreference:   $oldInfoPref"
-    log params debug "Original `$DebugPreference:       $oldInfoPref"
-    $VerbosePreference = 'Continue'
-    $DebugPreference = 'Continue'
-    log params debug "Verbose Mode is enabled (and silent is not). Both Verbose and Debug Preference have been set to 'Continue'"
-} elseif ($Verbose) {
-    log params debug "Verbose Mode is enabled but so is Silent mode. Verbose and Debug Preferences were unchanged"
-}
 
 #Check if we're _just_ creating a default config file
 if ( $MakeConfig ) {
@@ -401,6 +378,7 @@ function Gen-Key-Name ( $keys, $token ) {
 }
 
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
+    log timing trace "[START] Saving Keylist to disk"
     $kf = join-path $PWD "KeyList.txt"
     
     # We have Keys?
@@ -419,13 +397,15 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     } else {
         log outkey Warning "No Keys were found to show or output. There will be no key file"
     }
+    log timing trace "[END] Saving Keylist to disk"
 }
 
 # This should be run before the script is closed
 function Clean-Up {
     [CmdletBinding()]
     PARAM ([Switch] $NoExit = $false)
-    log clnup trace "[START] Script Cleanup"
+
+    log timing trace "[START] Script Cleanup"
     # output-keylist # This should no longer be needed.
     if ($NoExit) {log clnup debug "Cleanup function run with -NoExit arg. Will not exit after running"}
 
@@ -441,7 +421,7 @@ function Clean-Up {
     log clnup trace "Destroying logging Mutex"
     $mtx.Dispose()
     
-    log clnup trace "[END] Script Cleanup"
+    log timing trace "[END] Script Cleanup"
     if (!$NoExit) {
         exit 0
     }
@@ -449,7 +429,7 @@ function Clean-Up {
 
 ## Process Config file 
 function proc-config-file ( $cf ) {
-    log prccnf trace "[START] Processing of Config File"
+    log timing trace "[START] Processing of Config File"
     $stages = @('Switches', 'Config', 'Rules')
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
@@ -584,12 +564,13 @@ function proc-config-file ( $cf ) {
 
     log prccnf trace "config is here`n$($config | Out-String)`n`n"
     # $config.origin = $ConfigFile # store where the config is from
-    log prccnf trace "[END] Processing of Config File"
+    log timing trace "[END] Processing of Config File"
     return $config
 }
 
 # Process a KeyFile
 function proc-keyfile ( [string] $kf ) {
+    log timing trace "[START] Processing KeyFile"
     $importedKeylist = @{}
     $kfLines = [IO.file]::ReadAllLines($kf)
 
@@ -599,6 +580,7 @@ function proc-keyfile ( [string] $kf ) {
 
     if ( $startOfFileList -eq 0 ) {
         log prckyf error "Invalid format for KeyFile ($KeyFile)`nCan't find list of output files"
+        log timing trace "[END] Processing KeyFile"
         exit -1
     }
 
@@ -607,6 +589,7 @@ function proc-keyfile ( [string] $kf ) {
         $d = $d -replace '\s+', ' ' -split "\s"
         if ( $d.Length -ne 3) {
             log prckyf error "Invalid format for KeyFile ($KeyFile)`nKey and Value lines are invalid"
+            log timing trace "[END] Processing KeyFile"
             exit -1
         }
 
@@ -615,6 +598,7 @@ function proc-keyfile ( [string] $kf ) {
 
         if ( $k -eq "" -or $v -eq "") {
             log prckyf error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
+            log timing trace "[END] Processing KeyFile"
             exit -1
         }
 
@@ -625,6 +609,7 @@ function proc-keyfile ( [string] $kf ) {
         $script:listOfSanitisedFiles += $d;
     }
 
+    log timing trace "[END] Processing KeyFile"
     return $importedKeylist
 }
 
@@ -797,7 +782,7 @@ $JobFunctions = {
             $nameCounts[$token.Item2]++ # increment our count for this key 
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
         } while ( $keys[$possiblename] -ne $null )
-        log gnkynm trace "Had to loop $count times to find new name of '$possiblename'"
+        log gnkynm debug "Had to loop $count times to find new name of '$possiblename'"
         return $possiblename
     }
 
@@ -860,7 +845,7 @@ $JobFunctions = {
     
     ## Build the key table for all the files
     function Find-Keys ( [string] $fp, $flags, $IgnoredStrings, [String] $killerFlags ) {
-        log fndkys trace "[START] Finding Keys from $fp"
+        log timing trace "[START] Finding Keys from $fp"
 
         # dictionary to populate
         $Keys = @{}
@@ -884,12 +869,12 @@ $JobFunctions = {
             # Grab the value for each match, if it doesn't have a key make one
             foreach ( $m in $matches ) {
                 $mval = $m.groups[1].value
-                log fndkys trace "Matched: $mval"
+                log fndkys debug "Matched: $mval"
     
                 # Do we have a key already?
                 if ( $Keys.ContainsValue( $mval ) ) {
                     $k =  $Keys.GetEnumerator() | Where-Object { $_.Value -eq $mval }
-                    log fndkys trace "Recognised as: $($k.key)"
+                    log fndkys debug "Recognised as: $($k.key)"
                 
                 # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
                 } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { 
@@ -900,10 +885,8 @@ $JobFunctions = {
     
                 # Create a key and assign it to the match
                 } else { 
-                    log fndkys trace "Found new token! $( $mval )"
                     $newkey = gen-key-name $Keys $token
                     $Keys[$newkey] = $mval
-                    log fndkys trace "Made new alias: $newkey"
                     log fndkys trace "Made new key entry: $( $mval ) -> $newkey"
                 }
             }
@@ -912,14 +895,14 @@ $JobFunctions = {
         Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
     
         log fndkys trace "Keys: $keys"
-        log fndkys trace "[END] Finding Keys from $fp"
+        log timing trace "[END] Finding Keys from $fp"
         return $keys
     }
 }
 
 # Takes a file and outputs it's the keys
 function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerFlags, [int] $PCompleteStart, [int] $PCompleteEnd) {
-    log SctStr trace "Started scout stripper"
+    log timing trace "[START] Scouting file(s) with rules"
     $q = New-Object System.Collections.Queue
 
     ForEach ($file in $files) {
@@ -951,11 +934,12 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
     Get-Job | Remove-Job | Out-Null
     log SctStr trace "cleaned up scouting jobs"
 
+    log timing trace "[END] Scouting file(s) with rules"
     return $keylists
 }
 
 function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
-    log SanStr trace "Started Sanitising Stripper"
+    log timing trace "[START] Sanitising Files"
     $q = New-Object System.Collections.Queue
 
     # Sanitise each of the files with the final keylist and output them with Save-file
@@ -1000,10 +984,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     # Clean up the jobs
     Get-Job | Remove-Job | Out-Null
     
+    log timing trace "[END] Sanitising Files"
     return $sanitisedFilenames
 }
 
 function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCompleteEnd) {
+    log timing trace "[START] Merging Keylists"
 
     # If we only proc'd one file then return that
     if ($keylists.Count -eq 1) {
@@ -1033,10 +1019,12 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
     }
     Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId $_tp -Completed
 
+    log timing trace "[END] Merging Keylists"
     return $output
 }
 
 function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $ProgressStart, [int] $ProgressEnd) {
+    log timing trace "[START] Managing Job Execution"
     log manjob trace "Clearing all background jobs (again just in case)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
@@ -1096,10 +1084,12 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
     # Ensure all progress bars are cleared
     ForEach ($Job in Get-Job) {
         Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId $_tp -Complete
-    }    
+    }
+    log timing trace "[END] Managing Job Execution"
 }
 
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
+    log timing trace "[START] Sanitisation Manager"
     # There shouldn't be any other background jobs, but kill them anyway.
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Clearing background jobs" -PercentComplete 0
     log hdStrp debug "Current jobs running are: $(get-job *)"
@@ -1129,6 +1119,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
     log hdStrp trace "Finished sanitising and exporting files"
 
+    log timing trace "[END] Sanitisation Manager"
     return $finalKeyList, $sanitisedFilenames
 }
 
