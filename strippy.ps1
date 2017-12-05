@@ -125,6 +125,11 @@ function shuffle-logs ($MaxSize, $LogFile = $script:logfile) {
 
     # This is when we shuffle the logs
     write-host "need to write the shuffle logs function"
+
+    if ($mtx.WaitOne(500)) {
+        write-host "Entered Mutex for shuffling the logs"
+        [void]$mtx.ReleaseMutex()
+    } 
 }
 
 # Create a mutex for the rest of the execution
@@ -224,6 +229,8 @@ function log {
 }
 
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
+log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
+log init Trace "   ||    Version:    2.0.1                          ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $file"
 log params Trace "Silent Mode:                      $Silent"
@@ -361,8 +368,15 @@ log gen trace "[Start] Loading function definitions"
 #######################################################################################33
 # Function definitions
 
+# This is a dupe of the function in the JobFunction scriptblock 
+function eval-config-string ([string] $str) {
+    log evlcfs trace "config string |$str| is getting eval'd"
+    $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
+    log evlcfs trace "Eval'd to: $out"
+    return $out
+}
+
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
-    . $JobFunctions # to gain access to eval-config-string
     $kf = join-path $PWD "KeyList.txt"
     
     # We have Keys?
@@ -373,7 +387,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
             New-Item -Force "$AlternateKeyListOutput" | Out-Null
             $kf = $( Get-Item "$AlternateKeyListOutput" ).FullName
         }
-
+        
         log outkey message "`nExporting KeyList to $kf"
         $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
@@ -406,6 +420,7 @@ function Clean-Up () {
 
 ## Process Config file 
 function proc-config-file ( $cf ) {
+    log prcconf trace "[START] Processing of Config File"
     $stages = @('Switches', 'Config', 'Rules')
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
@@ -417,10 +432,10 @@ function proc-config-file ( $cf ) {
         $lineNum++
         # Do some checks about the line we're on
         if ( $line -match "^\s*;" ) {
-            write-verbose "skipped comment: $line"
+            log prcconf trace "skipped comment: $line"
             continue
         } elseif ($line -eq '') {
-            write-verbose "skipped empty line: $linenum"
+            log prcconf trace "skipped empty line: $linenum"
             continue
         }
 
@@ -429,8 +444,8 @@ function proc-config-file ( $cf ) {
             # is it a valid header structure?
             $matches = [regex]::Matches($line, "^\s*\[ ([\w\s]*) \].*$")
             if ($matches.groups -and $matches.groups.length -gt 1) {} else {
-                write-verbose "We found the '[]' for a header but something went wrong"
-                write-error "CONFIG: Error with Header on line $lineNum`: $line"
+                log prcconf trace "We found the '[]' for a header but something went wrong"
+                log prcconf error "CONFIG: Error with Header on line $lineNum`: $line"
                 exit -1
             }
             $headerVal = $matches.groups[1].value
@@ -540,6 +555,7 @@ function proc-config-file ( $cf ) {
 
     Write-Verbose "config is here`n$($config | Out-String)`n`n"
     # $config.origin = $ConfigFile # store where the config is from
+    log prcconf trace "[END] Processing of Config File"
     return $config
 }
 
@@ -640,19 +656,22 @@ function Get-MimeType() {
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
     # Enum to show what type of log it should be
-    Enum LEnum {
+    Enum LEnumJ {
         Trace
         Warning
         Debug
         Error
     }
 
+    # mtx used to share logging file
+    $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
+
     # Copy of $Script:Log function
     function log {
         [CmdletBinding()]
         PARAM (
             [Parameter (Mandatory)][String] $Stage,
-            [Parameter (Mandatory)][LEnum] $Type = [LEnum]::Trace,
+            [Parameter (Mandatory)][LEnumJ] $Type = [LEnum]::Trace,
             [Parameter (Mandatory)][String] $String,
             [System.ConsoleColor] $Colour,
             [String] $Logfile = $script:logfile
@@ -705,12 +724,10 @@ $JobFunctions = {
             # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
     }
 
-    $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
-
     function eval-config-string ([string] $str) {
-        Write-Verbose "config string |$str| is getting eval'd"
+        log evlcfs trace "config string |$str| is getting eval'd"
         $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
-        Write-Verbose "Eval'd to: $out"
+        log evlcfs trace "Eval'd to: $out"
         return $out
     }
 
