@@ -159,7 +159,7 @@ function log {
     )
 
     # Return instantly if this isn't output and we're not logging
-    if ($type -ne [LEnum]::Message -and !$script:log) {return}
+    if (@([LEnum]::Message,[LEnum]::Question,[LEnum]::Warning,[LEnum]::Error) -notcontains $type -and !$script:log) {return}
     # Return instantly if this is a debug message and we're not showing debug
     if ($type -eq [Lenum]::Debug -and !$script:showDebug) {return}
 
@@ -202,19 +202,25 @@ function log {
         }
     }
 
+    # If we need to display the message check that we're not meant to be silent
     if ($display -and -not $silent) {
         write-host $String -foregroundcolor $Colour
     }
     
-    $stageSection = $(0..6 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
-    $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
-    $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
-    if ($mtx.WaitOne()) {
-        $logMessage | Out-File -Filepath $Logfile -Append
-        [void]$mtx.ReleaseMutex()
-    } 
-    # consider doing something here like: 
-        # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
+    # Check whether we're meant to log to file
+    if (!$script:log) {
+        return
+    } else {    
+        $stageSection = $(0..6 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+        $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
+        $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
+        if ($mtx.WaitOne()) {
+            $logMessage | Out-File -Filepath $Logfile -Append
+            [void]$mtx.ReleaseMutex()
+        } 
+        # consider doing something here like: 
+            # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
+    }
 }
 
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
@@ -283,8 +289,8 @@ if ($Silent) { # What happens here if we enabled verbose and debug preferences o
 if ( $Verbose -and -not $Silent) {
     $oldVerbosityPref = $VerbosePreference
     $oldDebugPref = $DebugPreference
-    log params debug "Original `$VerbosityPreference: $oldInfoPref"
-    log params debug "Original `$DebugPreference:     $oldInfoPref"
+    log params debug "Original `$VerbosityPreference:   $oldInfoPref"
+    log params debug "Original `$DebugPreference:       $oldInfoPref"
     $VerbosePreference = 'Continue'
     $DebugPreference = 'Continue'
     log params debug "Verbose Mode is enabled (and silent is not). Both Verbose and Debug Preference have been set to 'Continue'"
@@ -347,8 +353,7 @@ if ( $File -eq "" ) {
 
 # Check we're dealing with an actual file
 if ( -not (Test-Path $File) ) {
-    Write-Error "$File does not exist"
-    log params error "File does not exist. Exiting script"
+    log params error "$File does not exist. Exiting script"
     exit -1
 }
 
@@ -369,40 +374,34 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
             $kf = $( Get-Item "$AlternateKeyListOutput" ).FullName
         }
 
-        Write-Information "`nExporting KeyList to $kf"
+        log outkey message "`nExporting KeyList to $kf"
         $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
-        Write-Information "No Keys were found to show or output. There will be no key file"
+        log outkey Warning "No Keys were found to show or output. There will be no key file"
     }
 }
 
 # This should be run before the script is closed
 function Clean-Up () {
+    log clnup trace "[START] Script Cleanup"
     # output-keylist # This should no longer be needed.
-    $mtx.Dispose()
-
+    
     ## Cleanup
+    log clnup Debug "Returning preferences to original state"
     $VerbosePreference = $oldVerbosityPref
     $DebugPreference = $oldDebugPref
     $InformationPreference = $oldInfoPref
+
+    log clnup debug "Return shell to original position"
     Set-Location $PWD
+
+    log clnup trace "Destroying logging Mutex"
+    $mtx.Dispose()
+    
+    log clnup trace "[END] Script Cleanup. TOTALLY EXPECTING THIS TO FAIL CAUSE WE KILLED THE MUTEX"
     exit 0
-}
-
-# Print only when not printing verbose comments
-function write-when-normal {
-    [cmdletbinding()]
-    param([Switch] $NoNewline, [String] $str)
-
-    if ($VerbosePreference -ne "Continue" -and -not $Silent) {
-        if ($NoNewline) {
-            Write-Host -NoNewline $str
-        } else {
-            Write-Host $str
-        }
-    } 
 }
 
 ## Process Config file 
@@ -570,7 +569,6 @@ function proc-keyfile ( [string] $kf ) {
         $k = $d[0]; $v = $d[1]
 
         if ( $k -eq "" -or $v -eq "") {
-            write-when-normal '' 
             Write-Error "Invalid format for KeyFile ($KeyFile)`nKeys and Values cannot be empty"
             exit -1
         }
@@ -620,6 +618,7 @@ function Get-FileEncoding {
 }
 
 function Get-MimeType() {
+    # This function is only included here to preserve this as a single file.
     # From https://gallery.technet.microsoft.com/scriptcenter/PowerShell-Function-to-6429566c#content
     param([parameter(Mandatory=$true, ValueFromPipeline=$true)][ValidateNotNullorEmpty()][System.IO.FileInfo]$CheckFile) 
     begin { 
@@ -855,7 +854,7 @@ $JobFunctions = {
 
 # Takes a file and outputs it's the keys
 function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerFlags, [int] $PCompleteStart, [int] $PCompleteEnd) {
-    Write-Verbose "Started scout stripper"
+    log SctStr trace "Started scout stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
 
@@ -866,13 +865,13 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
             # $VerbosePreference = $vPref
 
             Find-Keys $file $flags $IgnoredStrings $killerFlags
-            Write-Verbose "Found all the keys in $file"
+            log SctStr trace "Found all the keys in $file"
         } 
         $ArgumentList = $file,$flags,$script:Config.IgnoredStrings,$killerFlags,$VerbosePreference
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
-    Write-Verbose "Key finding jobs are finished"
+    log SctStr trace "Key finding jobs are finished"
 
     # Collect the output from each of the jobs
     $jobs = Get-Job -State Completed
@@ -881,17 +880,17 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
         $kl = Receive-Job -Keep -Job $job
         $keylists += $kl
     }
-    Write-Debug "retrieved the following from completed jobs:`n$($keylists | Out-String)"
+    log SctStr debug "retrieved the following from completed jobs:`n$($keylists | Out-String)"
     
     # Clean up the jobs
     Get-Job | Remove-Job | Out-Null
-    Write-Verbose "cleaned up scouting jobs"
+    log SctStr trace "cleaned up scouting jobs"
 
     return $keylists
 }
 
 function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
-    Write-Verbose "Started Sanitising Stripper"
+    log SanStr trace "Started Sanitising Stripper"
     $q = New-Object System.Collections.Queue
     . $JobFunctions # need for using Get-PathTail
 
@@ -904,18 +903,18 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
             # $DebugPreference = $vPref
 
             if ($killerFlags) {
-                Write-Verbose "Filtering out lines that match $killerFlags"
+                log SanStr trace "Filtering out lines that match $killerFlags"
                 $content = [IO.file]::ReadAllLines($file) -notmatch $killerFlags -join "`r`n"
             } else {
                 $content = [IO.file]::ReadAllLines($file) -join "`r`n"
             }
-            Write-Verbose "Loaded in content of $file"
+            log SanStr trace "Loaded in content of $file"
 
             $sanitisedOutput = Sanitise $firstline $finalKeyList $content $file
-            Write-Verbose "Sanitised content of $file"
+            log SanStr trace "Sanitised content of $file"
 
             $exportedFileName = Save-File $file $sanitisedOutput $rootFolder $OutputFolder $inPlace
-            Write-Verbose "Exported $file to $exportedFileName"
+            log SanStr trace "Exported $file to $exportedFileName"
 
             $exportedFileName
         }
@@ -923,7 +922,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $q.Enqueue($($name,$JobFunctions,$ScriptBlock,$ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
-    Write-Verbose "Sanitising jobs are finished. Files should be exported"
+    log SanStr trace "Sanitising jobs are finished. Files should be exported"
 
     # Collect the names of all the sanitised files
     $jobs = Get-Job -State Completed
@@ -932,7 +931,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $fn = Receive-Job -Keep -Job $job
         $sanitisedFilenames += $fn
     }
-    Write-Verbose "Sanitised file names are:`n$sanitisedFilenames"
+    log SanStr trace "Sanitised file names are:`n$sanitisedFilenames"
 
     # Clean up the jobs
     Get-Job | Remove-Job | Out-Null
@@ -945,7 +944,7 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
 
     # If we only proc'd one file then return that
     if ($keylists.Count -eq 1) {
-        Write-Verbose "Shortcutting for one file"
+        log mrgStr trace "Shortcutting for one file"
         return $keylists[0]
     }
     
@@ -962,11 +961,11 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
                 $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
                 $output.$newname = $keylist.$key
             } else {
-                Write-Verbose "Key $($keylist.$Key) already has name of $key"
+                log mrgStr trace "Key $($keylist.$Key) already has name of $key"
             }
         }
         $perc = ($keylists.IndexOf($keylist)+1)/($keylists.count)
-        write-verbose "Done $($perc*100)% of keylists"
+        log mrgStr trace "Done $($perc*100)% of keylists"
         Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $($perc*($PCompleteEnd-$PCompleteStart)+$PCompleteStart)
     }
     Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId $_tp -Completed
@@ -975,7 +974,7 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
 }
 
 function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $ProgressStart, [int] $ProgressEnd) {
-    Write-Verbose "Clearing all background jobs (again in-case)"
+    log jobman trace "Clearing all background jobs (again just in case)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
 
@@ -994,12 +993,12 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 ## If there is a progress object returned write progress
                 If ($Progress.Activity -ne $Null){
                     Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp
-                    Write-Verbose "Job '$($job.name)' is at $($Progress.PercentComplete)%"
+                    log jobman trace "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
                 
                 ## If this child is complete then stop writing progress
                 If ($Progress.PercentComplete -eq 100 -or $Progress.PercentComplete -eq -1){
-                    Write-Verbose "Job '$($Job.name)' has finished"
+                    log jobman trace "Job '$($Job.name)' has finished"
 
                     #Update total progress
                     $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
@@ -1014,16 +1013,16 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
         
         if ($JobsRunning -lt $MaxJobs -and $jobQ.Count -gt 0) {
             $NumJobstoRun = @(($MaxJobs-$JobsRunning),$jobQ.Count)[$jobQ.Count -lt ($MaxJobs-$JobsRunning)]
-            Write-Verbose "We've completed some jobs, we need to start $NumJobstoRun more"
+            log jobman trace "We've completed some jobs, we need to start $NumJobstoRun more"
             1..$NumJobstoRun | ForEach-Object {
-                Write-Verbose "iteration: $_ of $NumJobstoRun"
+                log jobman trace "iteration: $_ of $NumJobstoRun"
                 if ($jobQ.Count -eq 0) {
-                    Write-Verbose "There are 0 jobs left. Skipping the loop"
+                    log jobman trace "There are 0 jobs left. Skipping the loop"
                     return
                 }
                 $j = $jobQ.Dequeue()
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
-                Write-Verbose "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
+                log jobman trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
         }
 
@@ -1040,15 +1039,15 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
 function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFolder, $importedKeys) {
     # There shouldn't be any other background jobs, but kill them anyway.
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Clearing background jobs" -PercentComplete 0
-    Write-Debug "Current jobs running are: $(get-job *)"
+    log hdStrip debug "Current jobs running are: $(get-job *)"
     Get-Job | Stop-Job
     Get-job | Remove-Job
-    Write-Debug "removed all background jobs"
+    log hdStrip debug "removed all background jobs"
 
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Discovering Keys" -PercentComplete 1
     # Use Scout stripper to start looking for the keys in each file
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
-    Write-Verbose "finished finding keys"
+    log hdStrip trace "finished finding keys"
     
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
@@ -1056,12 +1055,12 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
 
     # Merge all of the keylists into a single dictionary.
     $finalKeyList = Merging-Stripper $keylists 35 60
-    Write-Verbose "Finished merging keylists"
+    log hdStrip trace "Finished merging keylists"
 
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
     $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
-    Write-Verbose "Finished sanitising and exporting files"
+    log hdStrip trace "Finished sanitising and exporting files"
 
     return $finalKeyList, $sanitisedFilenames
 }
