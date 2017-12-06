@@ -26,7 +26,6 @@ Below is an example of a config file that should handle most, if not all of the 
 
 ```ini
 ; Strippy Config file
-UseMe=true
 ;Recurse=true
 ;InPlace=false
 ;Silent=false
