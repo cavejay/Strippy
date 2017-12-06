@@ -340,7 +340,7 @@ if ( -not (Test-Path $File) ) {
     exit -1
 }
 
-log gen trace "[Start] Loading function definitions"
+log timing trace "[Start] Loading function definitions"
 #######################################################################################33
 # Function definitions
 
@@ -390,7 +390,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
             $kf = $( Get-Item "$AlternateKeyListOutput" ).FullName
         }
         
-        log outkey message "`nExporting KeyList to $kf"
+        log outkey message "Exporting KeyList to $kf"
         $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
@@ -739,7 +739,7 @@ $JobFunctions = {
 
         $stageSection = $(0..5 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
-        $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   [JOB]  " + $String)
+        $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   [JOB_$($script:JobId)]  " + $String)
         if ($mtx.WaitOne()) {
             $logMessage | Out-File -Filepath $logfile -Append
             [void]$mtx.ReleaseMutex()
@@ -749,6 +749,7 @@ $JobFunctions = {
     }
 
     function log-job-start () {
+        log jobenv trace "Job '$Script:JobName' started with Id: $Script:JobId"
         log jobenv trace "Logging enabled:          $($script:log)"
         log jobenv trace "Showing Debug messages:   $($script:showDebug)"
         log jobenv trace "Logfile:                  $($script:logfile)"
@@ -791,7 +792,7 @@ $JobFunctions = {
         if ( -not $InPlace ) {
             # Create output file's name
             $name = Split-Path $file -Leaf -Resolve
-            $filenameParts = $name -split '\.'
+            $filenameParts = $name -split '\.' # todo make this less dos centric
             $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
             $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
             if ($rootFolder) {
@@ -808,8 +809,8 @@ $JobFunctions = {
             $filenameOUT = $file
         }
     
-        # Save file as .santised.extension
-        if (test-path $filenameOUT) {} else {
+        # Create the file if it doesn't already exist
+        if (!(test-path $filenameOUT)) {
             New-Item -Force $filenameOUT | Out-Null
         }
         $content | Out-File -force -Encoding ascii $filenameOUT
@@ -909,7 +910,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $killerFlags, $_env)
-            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize = $_env
+            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$Script:JobName,$Script:JobId = $_env
             log-job-start
 
             Find-Keys $file $flags $IgnoredStrings $killerFlags
@@ -947,8 +948,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
             PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $killerFlags, $inPlace, $_env)
-            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize = $_env
+            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$script:JobName,$script:JobId = $_env
+
             log-job-start
+
+            "env - $_env" | Out-file 'success.txt' -Append
+            "id - $script:JobId" | Out-file 'success.txt' -Append
 
             if ($killerFlags) {
                 log SanStr trace "Filtering out lines that match $killerFlags"
@@ -1053,7 +1058,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
 
                     #Update total progress
                     $perc = $ProgressStart + $ProgressInterval*($totalJobs-$jobQ.count)
-                    Write-Progress -Activity "Sanitising" -Id 1 -PercentComplete $perc
+                    Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $perc
 
                     Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp -Complete
                     ## Clear all progress entries so we don't process it again
@@ -1072,6 +1077,8 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                     return
                 }
                 $j = $jobQ.Dequeue()
+                $JobDateId = "{0:x}" -f [int64]([datetime]::UtcNow-(get-date "1/1/1970")).TotalMilliseconds
+                $j[3][-1] += $j[0]; $j[3][-1] += ([char[]]$JobDateId[-6..-1] -join '')
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
                 log manjob trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
@@ -1123,13 +1130,13 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     return $finalKeyList, $sanitisedFilenames
 }
 
-log gen trace "[End] Loading function definitions"
+log timing trace "[End] Loading function definitions"
 
 ####################################################################################################
 # Start Actual Execution
 
 # Handle config loading
-log gen trace "[Start] Config Checking/Loading"
+log timing trace "[Start] Config Checking/Loading"
 $configUsed = $false
 if ( $script:ConfigFile ) {
     log cfgchk trace "Attempting to load the provided config file: $Script:ConfigFile"
@@ -1195,10 +1202,10 @@ if (!$configUsed) {
         $script:config.flags = $defaultFlags
     }
 }
-log gen trace "[End] Config Checking/Loading"
+log timing trace "[End] Config Checking/Loading"
 
 # // todo this could/should be a function
-log gen trace "[Start] KeyList Checking/Loading"
+log timing trace "[Start] KeyList Checking/Loading"
 $importedKeys = $null
 if ( $KeyFile ) {
     # Check the keyfile is legit before we start.
@@ -1232,13 +1239,13 @@ if ( $KeyFile ) {
 } else {
     log keychk trace "There was no keylist provided by config or user"
 }
-log gen trace "[End] KeyList Checking/Loading"
+log timing trace "[End] KeyList Checking/Loading"
 
 log strppy message "Attempting to Santise $File"
 $File = $(Get-Item $File).FullName
 log strppy debug "Resolved input file/folder to $File"
 
-log gen trace "[Start] Input/Output Discovery Process"
+log timing trace "[Start] Input/Output Discovery Process"
 ## Build the list of files to work on
 $filesToProcess = @()
 $OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
@@ -1268,7 +1275,7 @@ if ( $isDir ) {
         ( $_.name -like '*.sanitised.*')
 
         if (!$val) {
-            log ioproc trace "[Filtering] $($_.FullName) will not be sanitised"
+            log ioproc trace "$($_.FullName) will not be sanitised"
         }
         $val
     } | ForEach-Object {$_.FullName}
@@ -1333,14 +1340,14 @@ if ($AlternateOutputFolder) {
     $OutputFolder = $(Get-item $AlternateOutputFolder).FullName
     log ioproc message "Using Alternate Folder for output: $OutputFolder"
 }
-log gen trace "[End] Input/Output Discovery Process"
+log timing trace "[End] Input/Output Discovery Process"
 
 # give the head stripper all the information we've just gathered about the task
-log gen trace "[Start] File Processing/Sanitising"
+log timing trace "[Start] File Processing/Sanitising"
 $finalKeyList, $listOfSanitisedFiles = Head-Stripper $filesToProcess $File $OutputFolder $importedKeys
-log gen trace "[End] File Processing/Sanitising"
+log timing trace "[End] File Processing/Sanitising"
 
-log gen trace "[Start] Wrap up"
+log timing trace "[Start] Wrap up"
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -PercentComplete 99
 # Found the Keys, lets output the keylist
 output-keylist $finalKeyList $listOfSanitisedFiles
@@ -1352,4 +1359,4 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComple
 Start-Sleep 1
 Write-Progress -Activity "Sanitising" -Id $_tp -Completed
 Clean-Up -NoExit
-log gen trace "[End] Wrap up"
+log timing trace "[End] Wrap up"
