@@ -1077,7 +1077,9 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                     return
                 }
                 $j = $jobQ.Dequeue()
+                # Provide some context to the job's environment variable
                 $JobDateId = "{0:x}" -f [int64]([datetime]::UtcNow-(get-date "1/1/1970")).TotalMilliseconds
+                # Provide the name of the job and then the 'jobid' (which is just the date in hex and then shortened)
                 $j[3][-1] += $j[0]; $j[3][-1] += ([char[]]$JobDateId[-6..-1] -join '')
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
                 log manjob trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
