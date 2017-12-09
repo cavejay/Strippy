@@ -362,9 +362,10 @@ function Get-PathTail ([string] $d1, [string] $d2) {
 # This is also also a dupe of the function in the JobFunctions Scriptblock :( I can't figure out how to join the 2 and this is 3 lots of duped code
 $nameCounts = @{}
 function Gen-Key-Name ( $keys, $token ) {
+    log timing trace "[START] Generating a new and unique name for a key"
     $possiblename = ''; $count = 0
     do {
-        log gnkynm debug $token.Item2
+        # log gnkynm debug $token.Item2
         if ( -not $nameCounts.ContainsKey($token.Item2) ) {
             # If we've not heard of this key before, make it
             $nameCounts[$token.Item2] = 0
@@ -373,7 +374,8 @@ function Gen-Key-Name ( $keys, $token ) {
         $nameCounts[$token.Item2]++ # increment our count for this key 
         $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
     } while ( $keys[$possiblename] -ne $null )
-    log gnkynm trace "Had to loop $count times to find new name of '$possiblename'"
+    log gnkynm debug "Had to loop $count times to find new name of '$possiblename'"
+    log timing trace "[END] Generating a new and unique name for a key"
     return $possiblename
 }
 
@@ -772,9 +774,10 @@ $JobFunctions = {
     # Generates a keyname without doubles
     $nameCounts = @{}
     function Gen-Key-Name ( $keys, $token ) {
+        log timing trace "[START] Generating a new and unique name for a key"
         $possiblename = ''; $count = 0
         do {
-            log gnkynm debug $token.Item2
+            # log gnkynm debug $token.Item2
             if ( -not $nameCounts.ContainsKey($token.Item2) ) {
                 # If we've not heard of this key before, make it
                 $nameCounts[$token.Item2] = 0
@@ -784,10 +787,12 @@ $JobFunctions = {
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
         } while ( $keys[$possiblename] -ne $null )
         log gnkynm debug "Had to loop $count times to find new name of '$possiblename'"
+        log timing trace "[END] Generating a new and unique name for a key"
         return $possiblename
     }
 
-    function Save-File ( [string] $file, [string] $content, [string] $rootFolder, [string] $OutputFolder, [bool] $inPlace ) { 
+    function Save-File ( [string] $file, [string] $content, [string] $rootFolder, [string] $OutputFolder, [bool] $inPlace ) {
+        log timing trace "[START] Saving sanitised file to disk"
         $filenameOUT = ''
         if ( -not $InPlace ) {
             # Create output file's name
@@ -816,6 +821,7 @@ $JobFunctions = {
         $content | Out-File -force -Encoding ascii $filenameOUT
         log svfile trace "Written out to $filenameOUT"
         
+        log timing trace "[END] Saving sanitised file to disk"
         # Return name of sanitised file for use by the keylist
         return "$( $(Get-Date).toString() ) - $filenameOUT"
     }
@@ -879,7 +885,7 @@ $JobFunctions = {
                 
                 # Check the $IgnoredStrings list using a reduce function. Using a reduce function will open up for regex checks in the future
                 } elseif ( $IgnoredStrings | ForEach-Object {$val = $false} { 
-                    log fndkys trace "Checking $mval against $_`: $($mval -eq $_) or $val"
+                    log fndkys debug "Checking $mval against $_`: $($mval -eq $_) or $val"
                     $val = ($mval -eq $_) -or $val 
                 } {$val} ) {
                     log fndkys trace "Found ignored string: $mval"
@@ -940,7 +946,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
 }
 
 function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
-    log timing trace "[START] Sanitising Files"
+    log timing trace "[START] Sanitising File(s)"
     $q = New-Object System.Collections.Queue
 
     # Sanitise each of the files with the final keylist and output them with Save-file
@@ -989,7 +995,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     # Clean up the jobs
     Get-Job | Remove-Job | Out-Null
     
-    log timing trace "[END] Sanitising Files"
+    log timing trace "[END] Sanitising File(s)"
     return $sanitisedFilenames
 }
 
