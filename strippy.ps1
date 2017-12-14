@@ -128,6 +128,7 @@ function shuffle-logs ($MaxSize, $LogFile = $script:logfile) {
 
     if ($mtx.WaitOne(500)) {
         write-host "Entered Mutex for shuffling the logs"
+
         [void]$mtx.ReleaseMutex()
     } 
 }
@@ -404,7 +405,6 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
 
 # This should be run before the script is closed
 function Clean-Up {
-    [CmdletBinding()]
     PARAM ([Switch] $NoExit = $false)
 
     log timing trace "[START] Script Cleanup"
