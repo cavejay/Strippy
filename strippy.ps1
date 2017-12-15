@@ -112,25 +112,37 @@ param (
     # How threaded can this process become?
     [int] $MaxThreads = 5,
     # How big can a log file get before it's shuffled
-    [int] $MaxLogFileSize = 10MB
+    [int] $MaxLogFileSize = 10MB,
+    # Max number of log files created by the script
+    [int] $NumberOfHistoricalLogFiles = 5
 )
 
 ## Setup Log functions
-function shuffle-logs ($MaxSize, $LogFile = $script:logfile) {
+function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:MaxNumberOfLogFiles) {
     if (!(Test-Path $LogFile)) {
         return # if the log file doesn't exist then we don't need to do anything
     } elseif ((Get-Item $logfile).Length -le $MaxSize) {
         return # the log file is still too small
     }
 
-    # This is when we shuffle the logs
-    write-host "need to write the shuffle logs function"
+    # Get the name of the file
+    $n = ((Split-Path -Leaf -Resolve $logFile) -split '\.')[-2]
 
+    # find all the files that fit that name
+    $logfiles = Get-ChildItem (split-path $LogFile) -Filter "$n.*log"
+    
+    # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
     if ($mtx.WaitOne(500)) {
-        write-host "Entered Mutex for shuffling the logs"
-
+        # Shuffle the file numbers up
+        ($MaxFiles-1)..1 | ForEach-Object {
+            move-item "$n.$_.log" "$n.$($_+1).log" -Force
+        }
+        move-item $logFile "$n.1.log"
+    
+        # Start a new file
+        new-item -ItemType file -Path $LogFile
         [void]$mtx.ReleaseMutex()
-    } 
+    }
 }
 
 # Create a mutex for the rest of the execution
@@ -682,20 +694,31 @@ $JobFunctions = {
     # mtx used to share logging file
     $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
 
-    function shuffle-logs ($MaxSize, $LogFile = $script:logfile) {
+    function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:MaxNumberOfLogFiles) {
         if (!(Test-Path $LogFile)) {
             return # if the log file doesn't exist then we don't need to do anything
         } elseif ((Get-Item $logfile).Length -le $MaxSize) {
             return # the log file is still too small
         }
     
-        # This is when we shuffle the logs
-        write-host "need to write the shuffle logs function"
+        # Get the name of the file
+        $n = ((Split-Path -Leaf -Resolve $logFile) -split '\.')[-2]
     
+        # find all the files that fit that name
+        $logfiles = Get-ChildItem (split-path $LogFile) -Filter "$n.*log"
+        
+        # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
         if ($mtx.WaitOne(500)) {
-            write-host "Entered Mutex for shuffling the logs"
+            # Shuffle the file numbers up
+            ($MaxFiles-1)..1 | ForEach-Object {
+                move-item "$n.$_.log" "$n.$($_+1).log" -Force
+            }
+            move-item $logFile "$n.1.log"
+        
+            # Start a new file
+            new-item -ItemType file -Path $LogFile
             [void]$mtx.ReleaseMutex()
-        } 
+        }
     }
 
     # Copy of $Script:Log function
