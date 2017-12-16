@@ -114,11 +114,11 @@ param (
     # How big can a log file get before it's shuffled
     [int] $MaxLogFileSize = 10MB,
     # Max number of log files created by the script
-    [int] $NumberOfHistoricalLogFiles = 5
+    [int] $LogHistory = 5
 )
 
 ## Setup Log functions
-function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:MaxNumberOfLogFiles) {
+function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:LogHistory) {
     if (!(Test-Path $LogFile)) {
         return # if the log file doesn't exist then we don't need to do anything
     } elseif ((Get-Item $logfile).Length -le $MaxSize) {
@@ -128,19 +128,24 @@ function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script
     # Get the name of the file
     $n = ((Split-Path -Leaf -Resolve $logFile) -split '\.')[-2]
 
-    # find all the files that fit that name
+    # Find all the files that fit that name
     $logfiles = Get-ChildItem (split-path $LogFile) -Filter "$n.*log"
     
     # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
     if ($mtx.WaitOne(500)) {
+
         # Shuffle the file numbers up
         ($MaxFiles-1)..1 | ForEach-Object {
-            move-item "$n.$_.log" "$n.$($_+1).log" -Force
+            move-item "$n.$_.log" "$n.$($_+1).log" -Force -ErrorAction SilentlyContinue
         }
-        move-item $logFile "$n.1.log"
+        $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
+        $logMessage = ("LOG SHUFFLE " + $timestamp + "   Continued in next log file")
+        $logMessage | Out-File -FilePath $LogFile -Force -Append
+        move-item $logFile "$n.1.log" 
     
         # Start a new file
-        new-item -ItemType file -Path $LogFile
+        new-item -ItemType file -Path $LogFile | Out-Null;
+
         [void]$mtx.ReleaseMutex()
     }
 }
@@ -167,7 +172,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
     if (!$script:log -and @([LEnum]::Message,[LEnum]::Question,[LEnum]::Warning,[LEnum]::Error) -notcontains $type) {return}
     # Return instantly if this is a debug message and we're not showing debug
     if (!$script:showDebug -and $type -eq [Lenum]::Debug) {return}
-
+ 
     shuffle-logs $script:MaxLogFileSize $Logfile
 
     # Deal with the colouring and metadata
@@ -255,6 +260,8 @@ log params Trace "Alternate Output folder files:    $(@('Unset',$AlternateOutput
 log params Trace "Key file:                         $(@('Unset',$KeyFile)[$KeyFile -ne ''])"
 log params Trace "Config file:                      $(@('Unset',$ConfigFile)[$ConfigFile -ne ''])"
 log params Trace "Maximum parrallel threads:        $MaxThreads"
+log params Trace "Max log file size:                $MaxLogFileSize"
+log params Trace "Number of Log files kept:         $LogHistory"
 
 # Special Variables: (Not overwritten by config files)
 # If this script is self contained then all config is specified in the script itself and config files are not necessary or requested for. 
@@ -281,7 +288,7 @@ $PWD = get-location
 log params debug "Initial running location:         $PWD"
 $_tp = 992313 # top Progress
 log params debug "Special ID for top progress bar:  $_tp"
-$_env = $script:log,$script:showDebug,$(resolve-path $script:logfile -ErrorAction 'SilentlyContinue').path,$script:MaxLogFileSize
+$_env = $script:log,$script:showDebug,$(resolve-path $script:logfile -ErrorAction 'SilentlyContinue').path,$script:MaxLogFileSize,$script:LogHistory
 log params debug "Created `$_env variable to pass logging environment to jobs (log, showDebug, logfile, maxLogFileSize): $($_env -join ', ')"
 
 # Flags
@@ -694,7 +701,7 @@ $JobFunctions = {
     # mtx used to share logging file
     $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
 
-    function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:MaxNumberOfLogFiles) {
+    function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:LogHistory) {
         if (!(Test-Path $LogFile)) {
             return # if the log file doesn't exist then we don't need to do anything
         } elseif ((Get-Item $logfile).Length -le $MaxSize) {
@@ -704,22 +711,28 @@ $JobFunctions = {
         # Get the name of the file
         $n = ((Split-Path -Leaf -Resolve $logFile) -split '\.')[-2]
     
-        # find all the files that fit that name
+        # Find all the files that fit that name
         $logfiles = Get-ChildItem (split-path $LogFile) -Filter "$n.*log"
         
         # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
         if ($mtx.WaitOne(500)) {
+    
             # Shuffle the file numbers up
             ($MaxFiles-1)..1 | ForEach-Object {
-                move-item "$n.$_.log" "$n.$($_+1).log" -Force
+                move-item "$n.$_.log" "$n.$($_+1).log" -Force -ErrorAction SilentlyContinue
             }
-            move-item $logFile "$n.1.log"
+            $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
+            $logMessage = ("LOG SHUFFLE " + $timestamp + "   Continued in next log file")
+            $logMessage | Out-File -FilePath $LogFile -Force -Append
+            move-item $logFile "$n.1.log" 
         
             # Start a new file
-            new-item -ItemType file -Path $LogFile
+            new-item -ItemType file -Path $LogFile | Out-Null;
+    
             [void]$mtx.ReleaseMutex()
         }
     }
+    
 
     # Copy of $Script:Log function
     function log {
@@ -779,6 +792,7 @@ $JobFunctions = {
         log jobenv trace "Showing Debug messages:   $($script:showDebug)"
         log jobenv trace "Logfile:                  $($script:logfile)"
         log jobenv trace "Max log file size:        $($script:MaxLogFileSize)"
+        log jobenv trace "Number of Historical Logs:$($script:LogHistory)"
     }
 
     function eval-config-string ([string] $str) {
@@ -939,7 +953,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
             PARAM($file, $flags, $IgnoredStrings, $killerFlags, $_env)
-            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$Script:JobName,$Script:JobId = $_env
+            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$script:LogHistory,$Script:JobName,$Script:JobId = $_env
             log-job-start
 
             Find-Keys $file $flags $IgnoredStrings $killerFlags
@@ -977,7 +991,7 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
         $name = "Sanitising $(Get-PathTail $file $rootFolder)"
         $ScriptBlock = {
             PARAM($file, $finalKeyList, $firstline, $OutputFolder, $rootFolder, $killerFlags, $inPlace, $_env)
-            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$script:JobName,$script:JobId = $_env
+            $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$script:LogHistory,$script:JobName,$script:JobId = $_env
 
             log-job-start
 
