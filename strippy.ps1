@@ -231,6 +231,9 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
         try { # This try is to deal specifically when we've destroyed the mutex.
             if ($mtx.WaitOne()) {
+                # $writer = [System.IO.StreamWriter]::new($Logfile)
+                # $writer.WriteLine($logMessage)
+                # $writer.Close()
                 $logMessage | Out-File -Filepath $Logfile -Append
                 [void]$mtx.ReleaseMutex()
             } 
