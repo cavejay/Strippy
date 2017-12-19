@@ -335,7 +335,7 @@ if ( $MakeConfig ) {
 # Usage todo need to make this usable without the reliance on get-help or powershell in general. 
 if ( $File -eq "" ) {
     log params trace "Strippy was started with no file. Showing the get-help output for the script and exiting"
-    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name) -Detailed
     exit 0
 }
 
