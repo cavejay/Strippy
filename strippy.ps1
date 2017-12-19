@@ -248,7 +248,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    v2.0.1                          ||"
+log init Trace "   ||    Version:    v2.0.1                         ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $((resolve-path $file -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Silent Mode:                      $Silent"
