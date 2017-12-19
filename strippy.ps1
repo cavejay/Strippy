@@ -226,20 +226,20 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
     if (!$script:log) {
         return
     } else {    
+        # assemble log message!
         $stageSection = $(0..5 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
         try { # This try is to deal specifically when we've destroyed the mutex.
             if ($mtx.WaitOne()) {
-                # $writer = [System.IO.StreamWriter]::new($Logfile)
-                # $writer.WriteLine($logMessage)
-                # $writer.Close()
+                # use Powershell native code. .NET functions don't offer enough improvement here.
                 $logMessage | Out-File -Filepath $Logfile -Append
                 [void]$mtx.ReleaseMutex()
             } 
             # consider doing something here like: 
                 # if waiting x ms then continue but build a buffer. Check each time the buffer is added to until a max is reached and wait to add that
-        } catch [ObjectDisposedException] {
+            # Sometimes the mutex might have been destroyed already (like when we're finishing up) so work with what we've got
+            } catch [ObjectDisposedException] {
             "$logMessage - NoMutex" | Out-File -FilePath $logFile -Append
         }
     }
@@ -308,28 +308,10 @@ log params debug "Default flags/rules:              $defaultFlags"
 if ( $MakeConfig ) {
     log mkconf trace "Script launched with the -MakeConfig switch. Script will attempt to make a new, default config file before exiting."
     $confloc = Join-Path $( Get-Location ) 'strippy.conf'
-    $defaultConfig = '; Strippy Config file
-;Recurse=true
-;InPlace=false
-;Silent=false
-;MaxThreads=5
-
-[ Config ]
-IgnoredStrings="/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications", ""
-
-; These settings can use braces to include dynamic formatting: 
-; {0} = Date/Time at processing
-; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy 
-SanitisedFileFirstLine="This file was Sanitised at {0}.`r`n==`r`n`r`n"
-KeyListFirstLine="This keylist was created at {0}."
-;KeyFileName="Keylist.txt"
-;AlternateOutputFolder=".\sanitisedoutput"
-
-[ Rules ]
-;"Some Regex String here"="Replacement here"
-"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]"="Address"
-"\\\\([\w\-.]*?)\\"="Hostname"
-'
+    log mkconf trace "We're going to make the config file here: $confloc"
+    # Apologies if you're trying to read this next string. 
+    $defaultConfig = '; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings="/0:0:0:0:0:0:0:0", "0.0.0.0", "127.0.0.1", "name", "applications", ""`r`n`r`n; These settings can use braces to include dynamic formatting: `r`n; {0} = Date/Time at processing`r`n; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine="This file was Sanitised at {0}.`r`n==`r`n`r`n"`r`nKeyListFirstLine="This keylist was created at {0}."`r`n;KeyFileName="Keylist.txt"`r`n;AlternateOutputFolder=".\sanitisedoutput"`r`n`r`n[ Rules ]`r`n;"Some Regex String here"="Replacement here"`r`n"((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]"="Address"`r`n"\\\\([\w\-.]*?)\\"="Hostname"`r`n'
+    log mkconf trace "We're going to give it this content:`r`n$defaultConfig"
 
     # Check to make sure we're not overwriting someone's config file
     if ( Test-Path $( $confloc ) ) {
@@ -345,7 +327,7 @@ KeyListFirstLine="This keylist was created at {0}."
         }
     }
 
-    $defaultConfig | Out-File -Encoding ascii $confloc
+    $defaultConfig | Out-File -Encoding ascii $confloc -ErrorAction Stop
     log Mkconf message "Generated config file: $confloc"
     exit 0
 }
