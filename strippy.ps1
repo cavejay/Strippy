@@ -87,6 +87,9 @@ param (
     [Switch] $Recurse = $false,
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [Switch] $InPlace = $false,
+	# Help flags that return help information for -h -help types
+	[Switch] $h = $false,
+	[Switch] $help = $false,
     # Creates a barebones strippy.conf file for the user to fill edit
     [Switch] $MakeConfig,
     # Perform logging for this execution
@@ -245,6 +248,21 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
     }
 }
 
+# Help flag checks
+if ($h -match "true" -or $help -match "true" ) {
+    log params trace "Strippy was started help flags. Showing the get-help output for the script and exiting"
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
+    exit 0
+}
+
+# Usage todo need to make this usable without the reliance on get-help or powershell in general. 
+if ( $File -eq "" ) {
+    log params trace "Strippy was started with no file. Showing the get-help output for the script and exiting"
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name) -Detailed
+    exit 0
+}
+
+
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
@@ -332,12 +350,6 @@ if ( $MakeConfig ) {
     exit 0
 }
 
-# Usage todo need to make this usable without the reliance on get-help or powershell in general. 
-if ( $File -eq "" ) {
-    log params trace "Strippy was started with no file. Showing the get-help output for the script and exiting"
-    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name) -Detailed
-    exit 0
-}
 
 # Check we're dealing with an actual file
 if ( -not (Test-Path $File) ) {
@@ -387,7 +399,6 @@ function Gen-Key-Name ( $keys, $token ) {
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     log timing trace "[START] Saving Keylist to disk"
     $kf = join-path $PWD "KeyList.txt"
-    
     # We have Keys?
     if ( $finalKeyList.Keys.Count -ne 0) {
         # Do we need to put them somewhere else?
@@ -398,7 +409,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
         }
         
         log outkey message "Exporting KeyList to $kf"
-        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList | Out-String )
+        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | sort -Property name | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
@@ -1383,7 +1394,7 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 log strppy message "`n==========================================================================`nProcessed Keys:"
-log strppy message "$($finalKeyList | Out-String)"
+log strppy message "$($finalKeyList.GetEnumerator() | sort -Property name | Out-String)"
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
