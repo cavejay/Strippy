@@ -249,9 +249,9 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
 }
 
 # Help flag checks
-if ($h -match "true" -or $help -match "true" ) {
+if ($h -or $help) {
     log params trace "Strippy was started help flags. Showing the get-help output for the script and exiting"
-    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name)
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name) -Detailed
     exit 0
 }
 
