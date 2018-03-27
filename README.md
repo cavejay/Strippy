@@ -8,6 +8,8 @@ It’s written in powershell and so will run natively on every company laptop wi
 
 **This is a Powershell script. It will not execute natively in Window's command prompt**
 
+Download the latest version from: https://github.com/cavejay/Strippy/releases/latest
+
 Run `powershell -executionpolicy Unrestricted` to enter a Powershell prompt capable of running custom scripts.
 
 Sanitise a file: `C:\PS> .\strippy.ps1 .\logs\server.1.log`
