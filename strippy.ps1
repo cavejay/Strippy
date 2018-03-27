@@ -136,7 +136,6 @@ function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script
     
     # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
     if ($mtx.WaitOne(500)) {
-
         # Shuffle the file numbers up
         ($MaxFiles-1)..1 | ForEach-Object {
             move-item "$n.$_.log" "$n.$($_+1).log" -Force -ErrorAction SilentlyContinue
@@ -364,7 +363,22 @@ log timing trace "[Start] Loading function definitions"
 # This is a dupe of the same function in the JobFunctions Scriptblock
 function eval-config-string ([string] $str) {
     log evlcfs trace "config string |$str| is getting eval'd"
-    $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
+    # Check if we actually need to do this?
+    if ($str -notmatch "\{\d\}") {
+        log evlcfs trace "Config string did not contain any eval-able components"
+        return $str
+    }
+
+    # Lets make an array filled with the possible substitions. This is what will need to be updated for future versions
+    $arrayOfFills = @($(get-date).ToString())
+
+    $matches = [regex]::Matches($str,"\{\d\}")
+    $out = $str
+    foreach ($m in $matches.groups.value) {
+        log evlcfs debug "Replacing $m with $($arrayOfFills[([int][string]$m[1])])"
+        $out = $out -replace [regex]::Escape($m),$arrayOfFills[([int][string]$m[1])]
+    }
+
     log evlcfs trace "Eval'd to: $out"
     return $out
 }
@@ -793,7 +807,22 @@ $JobFunctions = {
 
     function eval-config-string ([string] $str) {
         log evlcfs trace "config string |$str| is getting eval'd"
-        $out = Invoke-Expression `"$($str -f $(get-date).ToString())`"
+        # Check if we actually need to do this?
+        if ($str -notmatch "\{\d\}") {
+            log evlcfs trace "Config string did not contain any eval-able components"
+            return $str
+        }
+    
+        # Lets make an array filled with the possible substitions. This is what will need to be updated for future versions
+        $arrayOfFills = @($(get-date).ToString())
+    
+        $matches = [regex]::Matches($str,"\{\d\}")
+        $out = $str
+        foreach ($m in $matches.groups.value) {
+            log evlcfs debug "Replacing $m with $($arrayOfFills[([int][string]$m[1])])"
+            $out = $out -replace [regex]::Escape($m),$arrayOfFills[([int][string]$m[1])]
+        }
+    
         log evlcfs trace "Eval'd to: $out"
         return $out
     }
