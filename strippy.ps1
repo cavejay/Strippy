@@ -77,8 +77,10 @@
     - use powershell options for directory and file edits
 #>
 
+# Strippy is currently only supported for v5 and higher
+#Requires -Version 5
 [CmdletBinding()]
-param (
+param ( 
     # The File or Folder you wish to sanitise
     [String] $File,
     # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
@@ -91,7 +93,7 @@ param (
 	[Switch] $h = $false,
 	[Switch] $help = $false,
     # Creates a barebones strippy.conf file for the user to fill edit
-    [Switch] $MakeConfig,
+    [Switch] $MakeConfig = $false,
     # Perform logging for this execution
     [Switch] $log = $false,
     # The specific log file to log to. This is useless unless the log switch is used
