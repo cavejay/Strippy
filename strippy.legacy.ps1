@@ -77,9 +77,6 @@
     - use powershell options for directory and file edits
 #>
 
-# Strippy is currently only supported for v5 and higher
-#Requires -Version 5
-[CmdletBinding()]
 param ( 
     # The File or Folder you wish to sanitise
     [String] $File,
@@ -155,53 +152,55 @@ function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script
 $mtx = New-Object System.Threading.Mutex($false, "LoggerMutex")
 
 # Enum to show what type of log it should be
-Enum LEnum {
-    Trace
-    Warning
-    Debug
-    Error
-    Question # Use this to show a prompt for user input
-    Message # This is the log type that's printed and coloured
-}
+# Enum LEnum {
+#     Trace
+#     Warning
+#     Debug
+#     Error
+#     Question # Use this to show a prompt for user input
+#     Message # This is the log type that's printed and coloured
+# }
 
 <#
     logfunction. Default params will log to file with date 
     https://www.sapien.com/blog/2015/01/05/enumerators-in-windows-powershell-5-0/
 #>
-function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String, [System.ConsoleColor] $Colour, [String] $Logfile = $script:logfile) {
+function log ([String] $Stage, [String] $Type = 'trace', [String] $String, [System.ConsoleColor] $Colour, [String] $Logfile = $script:logfile) {
+    $type = $type.ToLower()
+
     # Return instantly if this isn't output and we're not logging
-    if (!$script:log -and @([LEnum]::Message,[LEnum]::Question,[LEnum]::Warning,[LEnum]::Error) -notcontains $type) {return}
+    if (!$script:log -and @('message','question','warning','error') -notcontains $type) {return}
     # Return instantly if this is a debug message and we're not showing debug
-    if (!$script:showDebug -and $type -eq [Lenum]::Debug) {return}
+    if (!$script:showDebug -and $type -eq 'debug') {return}
  
     shuffle-logs $script:MaxLogFileSize $Logfile
 
     # Deal with the colouring and metadata
     switch ($Type) {
-        "Message" {  
+        "message" {  
             $1 = 'I'
             $display = $true
             $Colour = ($null,$Colour,'WHITE' -ne $null)[0] # trippy code that selects 'White' if $colour is $null
             break
         }
-        "Question" {
+        "question" {
             $1 = 'Q'
             $display = $true
             $Colour = ($null,$Colour,'CYAN' -ne $null)[0]
             break
         }
-        "Debug" {
+        "debug" {
             $1 = 'D'
             break
         }
-        "Error" {  
+        "error" {  
             $1 = 'E'
             $Colour = ($null,$Colour,'RED' -ne $null)[0]
             $display = $true
             $String = "ERROR: $string"
             break
         }
-        "Warning" {  
+        "warning" {  
             $1 = 'W'
             $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
             $display = $true
@@ -216,11 +215,10 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
     # If we need to display the message check that we're not meant to be silent
     if ($display -and -not $silent) {
         # Error messages require a black background to stand out and mirror powershell's native errors
-        if ($type -eq [LEnum]::Error) {
+        if ($type -eq 'error') {
             write-host $String -foregroundcolor $Colour -BackgroundColor 'Black'
         } else {
             write-host $String -foregroundcolor $Colour
-            
         }
     }
     
@@ -311,13 +309,20 @@ log params debug "Special ID for top progress bar:  $_tp"
 $_env = $script:log,$script:showDebug,$(resolve-path $script:logfile -ErrorAction 'SilentlyContinue').path,$script:MaxLogFileSize,$script:LogHistory
 log params debug "Created `$_env variable to pass logging environment to jobs (log, showDebug, logfile, maxLogFileSize): $($_env -join ', ')"
 
+function New-Tuple ($1,$2) {
+    $object = New-Object –TypeName PSObject
+    $object | Add-Member –MemberTypeNoteProperty –Name 'Item1' –Value $1
+    $object | Add-Member –MemberTypeNoteProperty –Name 'Item2' –Value $2
+    $object
+}
+
 # Flags
 $Config.flags = New-Object System.Collections.ArrayList
 # Added to every list of flags to cover IPs and UNC's
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
-    [System.Tuple]::Create("((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", 'Address'),
-    [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
+    (New-Tuple "((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]" 'Address'),
+    (New-Tuple "\\\\([\w\-.]*?)\\" "Hostname")
 ))
 log params debug "Default flags/rules:              $defaultFlags"
 
@@ -573,7 +578,7 @@ function proc-config-file ( $cf ) {
                     $lineValue = $matches.groups[2].value
 
                     # Add the rule to the flags array
-                    $config.flags += [System.Tuple]::Create($lineKey,$lineValue)
+                    $config.flags += New-Tuple $lineKey $lineValue
                 } elseif ($line -match '^".*"=\\delete\s*$') {
                     $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
                     if ($config.killerflag) {
@@ -700,14 +705,6 @@ function Get-MimeType() {
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
 $JobFunctions = {
-    # Enum to show what type of log it should be
-    Enum LEnumJ {
-        Trace
-        Warning
-        Debug
-        Error
-    }
-
     # mtx used to share logging file
     $mtx = [System.Threading.Mutex]::OpenExisting("LoggerMutex")
 
@@ -743,35 +740,36 @@ $JobFunctions = {
 
     # Copy of $Script:Log function
     function log {
-        [CmdletBinding()]
         PARAM (
-            [Parameter (Mandatory)][String] $Stage,
-            [Parameter (Mandatory)][LEnumJ] $Type,
-            [Parameter (Mandatory)][String] $String,
+            [Parameter (Mandatory=$true)][String] $Stage,
+            [Parameter (Mandatory=$true)][String] $Type,
+            [Parameter (Mandatory=$true)][String] $String,
             [System.ConsoleColor] $Colour,
             [String] $Logfile = $script:logfile
         )
 
+        $Type = $Type.ToString().ToLower()
+
         # Return instantly if we're not logging
         if (!$script:log) {return}
         # Return instantly if this is a debug message and we're not showing debug
-        if ($type -eq [LenumJ]::Debug -and !$script:showDebug) {return}
+        if ($type -eq 'debug' -and !$script:showDebug) {return}
 
         shuffle-logs $script:MaxLogFileSize $Logfile
 
         # Deal with the colour
         switch ($Type) {
-            "Debug" {  
+            "debug" {  
                 $1 = 'D'
                 break
             }
-            "Error" {  
+            "error" {  
                 $1 = 'E'
                 $Colour = ($null,$Colour,'RED' -ne $null)[0]
                 $String = "ERROR: $string"
                 break
             }
-            "Warning" {  
+            "warning" {  
                 $1 = 'W'
                 $Colour = ($null,$Colour,'YELLOW' -ne $null)[0]
                 $String = "Warning: $string"
@@ -1074,10 +1072,10 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
         ForEach ($Key in $keylist.Keys) {
             Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++/$totalKeys)*100) -ParentId $_tp
 
-            # if new, merged keylist does not contain the key
+            # if new, merged keylist does not contain the key 
             if ($output.values -notcontains $keylist.$Key) {
                 # Generate a new name for the key and add it to the merged keylist (output)
-                $newname = Gen-Key-Name $output $([System.Tuple]::Create("", $($key -split "\d*$")[0]))
+                $newname = Gen-Key-Name $output $(New-Tuple "" $($key -split "\d*$")[0])
                 $output.$newname = $keylist.$key
             } else {
                 log mrgStr trace "Key $($keylist.$Key) already has name of $key"
@@ -1326,12 +1324,12 @@ if ( $isDir ) {
     # Get all the files
     if ($Recurse) {
         log ioproc trace "Recursive mode means we get all the files"
-        $files = Get-ChildItem $File -Recurse -File
+        $files = Get-ChildItem $File -Recurse -File # need to fix. -file not supported in v2 todo
         log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
     } else {
         log ioproc trace "Normal mode means we only get the files at the top directory"
         log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
-        $files = Get-ChildItem $File -File
+        $files = Get-ChildItem $File -File # need to fix. -file not supported in v2 todo
     }
 
     # Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
