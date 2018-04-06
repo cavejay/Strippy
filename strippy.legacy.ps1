@@ -80,7 +80,7 @@
 # Strippy is currently only supported for v5 and higher
 #Requires -Version 5
 [CmdletBinding()]
-param (
+param ( 
     # The File or Folder you wish to sanitise
     [String] $File,
     # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
@@ -132,9 +132,6 @@ function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script
 
     # Get the name of the file
     $n = ((Split-Path -Leaf -Resolve $logFile) -split '\.')[-2]
-
-    # Find all the files that fit that name
-    $logfiles = Get-ChildItem (split-path $LogFile) -Filter "$n.*log"
     
     # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
     if ($mtx.WaitOne(500)) {
@@ -184,7 +181,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
         "Message" {  
             $1 = 'I'
             $display = $true
-            $Colour = ($null,$Colour,'WHITE' -ne $null)[0]
+            $Colour = ($null,$Colour,'WHITE' -ne $null)[0] # trippy code that selects 'White' if $colour is $null
             break
         }
         "Question" {
@@ -193,7 +190,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
             $Colour = ($null,$Colour,'CYAN' -ne $null)[0]
             break
         }
-        "Debug" {  
+        "Debug" {
             $1 = 'D'
             break
         }
@@ -223,6 +220,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
             write-host $String -foregroundcolor $Colour -BackgroundColor 'Black'
         } else {
             write-host $String -foregroundcolor $Colour
+            
         }
     }
     
@@ -231,7 +229,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
         return
     } else {    
         # assemble log message!
-        $stageSection = $(0..5 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+        $stageSection = $(0..5 | ForEach-Object {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
         try { # This try is to deal specifically when we've destroyed the mutex.
@@ -425,7 +423,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
         }
         
         log outkey message "Exporting KeyList to $kf"
-        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | sort -Property name | Out-String )
+        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | Sort-Object -Property name | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf
     } else {
@@ -723,9 +721,6 @@ $JobFunctions = {
         # Get the name of the file
         $n = ((Split-Path -Leaf -Resolve $logFile) -split '\.')[-2]
     
-        # Find all the files that fit that name
-        $logfiles = Get-ChildItem (split-path $LogFile) -Filter "$n.*log"
-        
         # When moving files make sure nothing else is accessing them. This is a bit of overkill but could be necessary.
         if ($mtx.WaitOne(500)) {
     
@@ -751,7 +746,7 @@ $JobFunctions = {
         [CmdletBinding()]
         PARAM (
             [Parameter (Mandatory)][String] $Stage,
-            [Parameter (Mandatory)][LEnumJ] $Type = [LEnumJ]::Trace,
+            [Parameter (Mandatory)][LEnumJ] $Type,
             [Parameter (Mandatory)][String] $String,
             [System.ConsoleColor] $Colour,
             [String] $Logfile = $script:logfile
@@ -787,7 +782,7 @@ $JobFunctions = {
             }
         }
 
-        $stageSection = $(0..5 | % {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
+        $stageSection = $(0..5 | ForEach-Object {$s=''}{$s+=@(' ',$Stage[$_])[[bool]$Stage[$_]]}{$s})
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   [JOB_$($script:JobId)]  " + $String)
         if ($mtx.WaitOne()) {
@@ -849,7 +844,7 @@ $JobFunctions = {
     
             $nameCounts[$token.Item2]++ # increment our count for this key 
             $possiblename = "$( $token.Item2 )$( $nameCounts[$token.Item2] )"
-        } while ( $keys[$possiblename] -ne $null )
+        } while ( $null -ne $keys[$possiblename] )
         log gnkynm debug "Had to loop $count times to find new name of '$possiblename'"
         log timing trace "[END] Generating a new and unique name for a key"
         return $possiblename
@@ -1117,7 +1112,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 $Progress = $Child.Progress[$Child.Progress.Count - 1]
                 
                 ## If there is a progress object returned write progress
-                If ($Progress.Activity -ne $Null){
+                If ($null -ne $Progress.Activity){
                     Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp
                     log manjob trace "Job '$($job.name)' is at $($Progress.PercentComplete)%"
                 }
@@ -1425,7 +1420,7 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 log strppy message "`n==========================================================================`nProcessed Keys:"
-log strppy message "$($finalKeyList.GetEnumerator() | sort -Property name | Out-String)"
+log strppy message "$($finalKeyList.GetEnumerator() | Sort-Object -Property name | Out-String)"
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1

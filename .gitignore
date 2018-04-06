@@ -2,5 +2,7 @@
 /*/
 !.gitignore
 !strippy.ps1
+!strippy.legacy.ps1
 !tests
 !*.Tests.ps1
+*.sanitised.log
