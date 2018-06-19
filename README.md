@@ -24,10 +24,11 @@ Sanitise files as part of a time based automation task: `C:\PS> .\strippy.ps1 "C
 
 ## Config
 
-Below is an example of a config file that should handle most, if not all of the sanitisation for the log files from a Dynatrace Data Center Real User Monitoring (DCRUM) installation. It is being kept as current, being updated when I encounter more cases are not already covered.
+Below is an example of a config file that should handle most, if not all of the sanitisation for the log files from a Dynatrace Data Center Real User Monitoring (DCRUM) 12.4.15 installation. It is being kept as current, being updated when I encounter more cases are not already covered. It is very possible that new log messages that need to be sanitised are added in newer versions, but I would need exposure to a live environment of that version to develop the determine the new rules.
 
 ```ini
 ; Strippy Config file
+; Developed for a 12.4.15 release of DCRUM
 ;Recurse=true
 ;InPlace=false
 ;Silent=false
@@ -81,7 +82,16 @@ KeyListFirstLine="This keylist was created at {0}."
 "Verified CSS \[\[(.*?)\]\[.*?\]\] in Federation"="FQDN"
 "jdbc:(.*?);"="JDBC_URL"
 "sqlserver:(.*?);\]"="Database"
-"Software service (.*) is alive"="SoftwareService"
+"Software service (.*) is (alive|dead)"="SoftwareService"
+"Cannot get user (.*?) data from CSS"="User"
+"Unable to find user \[(.*)\]"="User"
+"<(.+)>: Recipient address rejected: Access denied"="User"
+"Collected data for report "(.+) : section .+" from .+ in "="DMIReport"
+"Collected data for report ".+ : section (.+)" from .+ in "="DMISection"
+"^..CSS .+; user: (.+) "="User"
+"User (.+) \(\[.+\]\) on .+ has logged (on\.|OUT)"="User"
+"User .+ \(\[(.+)\]\) on .+ has logged (on\.|OUT)"="UserPermissions"
+
 
 ; Rules with the Replacement text of '\delete' processed first and deleted entirely
 "^.*resolved to.*$"=\delete
