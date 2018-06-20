@@ -50,8 +50,8 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.1.3 - 180327
-    Compatability: Powershell 5+
+    Version: LEGACY v2.1.3 - 180407
+    Compatability: Powershell 2+
 
 .LINK
     https://github.com/cavejay/Strippy
@@ -70,6 +70,7 @@
 # Have a blacklist of regexs.
 # More intellient capitalisation resolution.
 # Move from jobs to runspaces?
+# http://www.get-blog.com/?p=22
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 
 <# Maintenance Todo list
@@ -94,7 +95,7 @@ param (
     # Perform logging for this execution
     [Switch] $log = $false,
     # The specific log file to log to. This is useless unless the log switch is used
-    [String] $logfile = ".\strippy.log",
+    [String] $logfile = ".\strippy.legacy.log",
     # Show absolutely all log messages. This will create much larger logs
     [Switch] $showDebug = $false,
     # A shortcut for -AlternateKeylistOutput 
@@ -263,7 +264,7 @@ if ( $File -eq "" ) {
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    v2.1.0                         ||"
+log init Trace "   ||    Version:    LEGACY v2.1.3                  ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $((resolve-path $file -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Silent Mode:                      $Silent"
@@ -309,12 +310,14 @@ log params debug "Special ID for top progress bar:  $_tp"
 $_env = $script:log,$script:showDebug,$(resolve-path $script:logfile -ErrorAction 'SilentlyContinue').path,$script:MaxLogFileSize,$script:LogHistory
 log params debug "Created `$_env variable to pass logging environment to jobs (log, showDebug, logfile, maxLogFileSize): $($_env -join ', ')"
 
+# LEGACY SUPPORT ITEMS
 function New-Tuple ($1,$2) {
-    $object = New-Object –TypeName PSObject
-    $object | Add-Member –MemberTypeNoteProperty –Name 'Item1' –Value $1
-    $object | Add-Member –MemberTypeNoteProperty –Name 'Item2' –Value $2
+    $properties = @{'Item1'=$1;'Item2'=$2;}
+    $object = New-Object -TypeName PSObject -Property $properties
     $object
 }
+$PSScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+######
 
 # Flags
 $Config.flags = New-Object System.Collections.ArrayList
@@ -417,6 +420,7 @@ function Gen-Key-Name ( $keys, $token ) {
 
 function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
     log timing trace "[START] Saving Keylist to disk"
+
     $kf = join-path $PWD "KeyList.txt"
     # We have Keys?
     if ( $finalKeyList.Keys.Count -ne 0) {
@@ -488,12 +492,14 @@ function proc-config-file ( $cf ) {
         if ( $line -match "^\s*\[ [\w\s]* \].*$" ) {
             # is it a valid header structure?
             $matches = [regex]::Matches($line, "^\s*\[ ([\w\s]*) \].*$")
-            if ($matches.groups -and $matches.groups.length -gt 1) {} else {
+            if ($matches -and $($matches | Select-Object 'Groups').groups.count -gt 1) {
+                log prccnf trace "Header was matched successfully"
+            } else {
                 log prccnf trace "We found the '[]' for a header but something went wrong"
                 log prccnf error "CONFIG: Error with Header on line $lineNum`: $line"
                 exit -1
             }
-            $headerVal = $matches.groups[1].value
+            $headerVal = $($matches | Select-Object 'Groups').groups[1].value
             # bump the stage if we found a valid header
             if ( $stages[$stage+1] -eq $headerVal ) {
                 log prccnf trace "Moving to $($stages[$stage+1]) due to line $linenum`: $line"
@@ -513,13 +519,13 @@ function proc-config-file ( $cf ) {
         # Check if this is a valid config line
         if ( $line -match "^.*=.*$" ) {
             $matches = [regex]::Matches($line, "^(.*?)=(.*)$")
-            if ( $matches.groups -and $matches.groups.length -ne 3 ) {
+            if ( $matches -and $($matches | Select-Object 'Groups').groups.count -ne 3 ) {
                 log prccnf trace "Invalid config line. not enough values"
                 log prccnf error "Invalid config line. Incorrect format/grouping on line $linenum`: $line"
                 exit -1
             }
-            $lineKey = $matches.groups[1].value
-            $lineValue = $matches.groups[2].value
+            $lineKey = $($matches | Select-Object 'Groups').groups[1].value
+            $lineValue = $($matches | Select-Object 'Groups').groups[2].value
             # If we're not reading rules and we don't recognise the key, show a warning
             if ( $stages[$stage] -eq "Config" -and $validLineKey -notcontains $lineKey ) {
                 log prccnf trace "We did not recognise the key '$lineKey' we won't exit but will generate a warning"
@@ -574,13 +580,13 @@ function proc-config-file ( $cf ) {
                 if ( $line -match '^".*"=".*"$' ) {
                     # re-find the key/value incase there are '=' in the key
                     $matches = [regex]::Matches($line, '^"(.*?)"="(.*)"$')
-                    $lineKey = $matches.groups[1].value
-                    $lineValue = $matches.groups[2].value
+                    $lineKey = $($matches | Select-Object 'Groups').groups[1].value
+                    $lineValue = ($matches | Select-Object 'Groups').groups[2].value
 
                     # Add the rule to the flags array
                     $config.flags += New-Tuple $lineKey $lineValue
                 } elseif ($line -match '^".*"=\\delete\s*$') {
-                    $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
+                    $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$') | Select-Object 'Groups').groups[1].value
                     if ($config.killerflag) {
                         $config.killerflag += "|$flagtoremoveentirely"
                     } else {
@@ -598,7 +604,8 @@ function proc-config-file ( $cf ) {
         }
     }
 
-    log prccnf trace "config is here`n$($config | Out-String)`n`n"
+    log prccnf trace "config is here`n$($config | Out-String)`n"
+    log prccnf trace "Flags are:`n$($config.flags | Out-String)"
     # $config.origin = $ConfigFile # store where the config is from
     log timing trace "[END] Processing of Config File"
     return $config
@@ -784,7 +791,7 @@ $JobFunctions = {
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   [JOB_$($script:JobId)]  " + $String)
         if ($mtx.WaitOne()) {
-            $logMessage | Out-File -Filepath $logfile -Append
+            $logMessage | Out-File -Filepath 'M:\proj\logs.txt' -Append
             [void]$mtx.ReleaseMutex()
         } 
         # consider doing something here like: 
@@ -989,6 +996,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
     $jobs = Get-Job -State Completed
     $keylists = @()
     ForEach ($job in $jobs) {
+        log SctStr trace "Collecting $job"
         $kl = Receive-Job -Keep -Job $job
         $keylists += $kl
     }
@@ -1144,6 +1152,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 $JobDateId = "{0:x}" -f [int64]([datetime]::UtcNow-(get-date "1/1/1970")).TotalMilliseconds
                 # Provide the name of the job and then the 'jobid' (which is just the date in hex and then shortened)
                 $j[3][-1] += $j[0]; $j[3][-1] += ([char[]]$JobDateId[-6..-1] -join '')
+                log manjob trace "ArgumentList: $($j[3] | Out-String)"
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
                 log manjob trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
@@ -1155,7 +1164,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
 
     # Ensure all progress bars are cleared
     ForEach ($Job in Get-Job) {
-        Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId $_tp -Complete
+        Write-Progress -Activity $Job.Name -Status $Job.Name -ID $Job.ID -ParentId $_tp -Complete
     }
     log timing trace "[END] Managing Job Execution"
 }
@@ -1231,7 +1240,7 @@ if (!$configUsed) {
         log cfgchk debug "Successfully loaded the data from $tmp_f"
     } catch {
         log cfgchk trace "Caught Exception with message: $($_.Exception.Message)"
-        log cfgchk warning "Could not find or read $(join-path $PSScriptRoot "strippy.conf"). User will need to be prompted"
+        log cfgchk warning "Could not find or read . User will need to be prompted" # $(join-path $PSScriptRoot "strippy.conf")
     }
 
     if ($configText) {
@@ -1298,7 +1307,7 @@ if ( $KeyFile ) {
     $importedKeys = proc-keyfile $kf.FullName # we need the fullname to load the file in
     log keychk message "Finished Importing Keys from keyfile:"
     if ($Silent) {
-        $importedKeys
+        $importedKeys # this is weird and shouldn't be shown during silent
         log keychk trace "Contents of Imported Keylist: `r`n$importKeys"
     }
 } else {

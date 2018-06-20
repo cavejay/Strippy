@@ -58,7 +58,7 @@
 #>
 
 # Todo
-# combine AlternateKeyListOutput and keylistfile config settings. 
+# combine AlternateKeyListOutput and keylistfile config settings. ???
 # Dealing with selections of files a la "server.*.log" or similar
 # Add support/warning for ps 4
 # Use PS-InlineProgress or check and then use it if we're in the exe version
@@ -70,7 +70,6 @@
 # Have a blacklist of regexs.
 # More intellient capitalisation resolution.
 # Move from jobs to runspaces?
-# Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 
 <# Maintenance Todo list
     - Time global sanitise against running all the rules against each and every line in the files.    
