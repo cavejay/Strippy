@@ -63,7 +63,6 @@
 # Add support/warning for ps 4
 # Use PS-InlineProgress or check and then use it if we're in the exe version
 # Switch to add strippy to your ps profile for quick running
-# Logging
 # Have option for diagnotics file or similar that shows how many times each rule was hit
 # Publish to dxs wiki
 # Support .zips as well.
@@ -261,7 +260,6 @@ if ( $File -eq "" ) {
     exit 0
 }
 
-
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
@@ -410,22 +408,22 @@ function Gen-Key-Name ( $keys, $token ) {
     return $possiblename
 }
 
-function output-keylist ($finalKeyList, $listOfSanitisedFiles) {
+function output-keylist ($finalKeyList, $listOfSanitisedFiles, [switch]$quicksave) {
     log timing trace "[START] Saving Keylist to disk"
     $kf = join-path $PWD "KeyList.txt"
     # We have Keys?
     if ( $finalKeyList.Keys.Count -ne 0) {
         # Do we need to put them somewhere else?
         if ( $AlternateKeyListOutput ) {
-            Set-Location $PWD # Should maybe not use PWD here
+            Set-Location $PWD # Should maybe not use PWD here todo
             New-Item -Force "$AlternateKeyListOutput" | Out-Null
             $kf = $( Get-Item "$AlternateKeyListOutput" ).FullName
         }
         
-        log outkey message "Exporting KeyList to $kf"
+        if (!$quicksave){log outkey message "`r`nExporting KeyList to $kf"}
         $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | sort -Property name | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
-        $KeyOutfile | Out-File -Encoding ascii $kf
+        $KeyOutfile | Out-File -Encoding ascii $kf -Force
     } else {
         log outkey Warning "No Keys were found to show or output. There will be no key file"
     }
@@ -859,7 +857,7 @@ $JobFunctions = {
         if ( -not $InPlace ) {
             # Create output file's name
             $name = Split-Path $file -Leaf -Resolve
-            $filenameParts = $name -split '\.' # todo make this less dos centric
+            $filenameParts = $name -split '\.'
             $sanitisedName = $filenameParts[0..$( $filenameParts.Length-2 )] -join '.'
             $sanitisedName += '.sanitised.' + $filenameParts[ $( $filenameParts.Length-1 ) ]
             if ($rootFolder) {
@@ -867,7 +865,7 @@ $JobFunctions = {
                 $locality = Get-PathTail $(Split-Path $file) $rootFolder
                 log svfile trace "File is $locality from the root folder"
                 $filenameOUT = Join-Path $OutputFolder $locality 
-                $filenameOut = Join-Path $filenameOUT $sanitisedName
+                $filenameOUT = Join-Path $filenameOUT $sanitisedName
             } else {
                 $filenameOUT = Join-Path $OutputFolder $sanitisedName
             }
@@ -1189,6 +1187,11 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     log hdStrp message "Merging key lists to create a master version"
     $finalKeyList = Merging-Stripper $keylists 35 60
     log hdStrp trace "Finished merging keylists"
+
+    # Export a keylist now incase we can't or don't later.
+    log hdStrp trace "Exporting Partial keylist"
+    output-keylist $finalKeyList $files -quicksave
+    log hdStrp trace "Exported Partial Keylist"
 
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
