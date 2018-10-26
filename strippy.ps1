@@ -1,10 +1,12 @@
+#Requires -Version 5
+
 <#
 .SYNOPSIS
     Tool for sanitising utf8 encoded files based on configured "indicators"
 
 .DESCRIPTION
     Use this tool to automate the replacement of sensitive data in text files with generic strings.
-    While intended for use with log files this tool will work with text filesa as a whole.
+    While intended for use with log files this tool will work with text files as a whole.
 
     In order to use this tool effectively you will need to be proficient with regex. 
     Regex is used to filter out sensitive pieces of data from log files and replace it with a place holder.
@@ -26,7 +28,7 @@
     C:\PS> .\strippy.ps1 .\logs
 
     This is the typical usecase and will sanitise only the files directly in .\logs using a default config file.
-    Output files will be in the .\logs.sanitised folder and the keylist created for the logs will be found directory you the script.
+    Output files will be in the .\logs.sanitised folder and the keylist created for the logs will be found in the directory you ran the script.
 
 .EXAMPLE
     C:\PS> .\strippy.ps1 .\logs\server.1.log
@@ -67,7 +69,7 @@
 # Publish to dxs wiki
 # Support .zips as well.
 # Have a blacklist of regexs.
-# More intellient capitalisation resolution.
+# More intelligent capitalisation resolution.
 # Move from jobs to runspaces?
 # Switch used to create a single file strippy. ie, edit the script's code with the config rules etc.
 
