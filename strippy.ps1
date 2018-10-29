@@ -62,7 +62,6 @@
 # Todo
 # combine AlternateKeyListOutput and keylistfile config settings. 
 # Dealing with selections of files a la "server.*.log" or similar
-# Add support/warning for ps 4
 # Use PS-InlineProgress or check and then use it if we're in the exe version
 # Switch to add strippy to your ps profile for quick running
 # Have option for diagnotics file or similar that shows how many times each rule was hit
@@ -120,6 +119,8 @@ param (
     # Max number of log files created by the script
     [int] $LogHistory = 5
 )
+
+$_startTime = get-date
 
 ## Setup Log functions
 function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:LogHistory) {
@@ -594,6 +595,7 @@ function proc-config-file ( $cf ) {
     }
 
     log prccnf trace "config is here`n$($config | Out-String)`n`n"
+    # todo log all keys here. Debugging is difficult if we can't see everything.
     # $config.origin = $ConfigFile # store where the config is from
     log timing trace "[END] Processing of Config File"
     return $config
@@ -963,7 +965,7 @@ $JobFunctions = {
         # Set the bar to full for manage-job
         Write-Progress -Activity "Scouting $fp" -Completed -PercentComplete 100
     
-        log fndkys trace "Keys: $keys"
+        log fndkys trace "Keys: ${$keys | Format-Table}"
         log timing trace "[END] Finding Keys from $fp"
         return $keys
     }
@@ -1433,5 +1435,9 @@ log strppy message "$($finalKeyList.GetEnumerator() | sort -Property name | Out-
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
 Write-Progress -Activity "Sanitising" -Id $_tp -Completed
+
+$_delta = (New-timespan -start $_startTime -end $(get-date)).totalSeconds
+log timing message "Script completed in $_delta seconds"
+
 Clean-Up -NoExit
 log timing trace "[End] Wrap up"
