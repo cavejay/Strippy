@@ -570,7 +570,7 @@ function proc-config-file ( $cf ) {
                 if ( $line -match '^".*"=".*"$' ) {
                     # re-find the key/value incase there are '=' in the key
                     $matches = [regex]::Matches($line, '^"(.*?)"="(.*)"$')
-                    $lineKey = $matches.groups[1].value
+                    $lineKey = [regex]$matches.groups[1].value
                     $lineValue = $matches.groups[2].value
 
                     # Add the rule to the flags array
@@ -929,13 +929,16 @@ $JobFunctions = {
             $f = [IO.file]::ReadAllLines( $fp ) -join "`r`n"
         }
 
+        Wait-Debugger
+
         # Process file for tokens
         $count = 1
         foreach ( $token in $flags ) {
             Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.count)*100)
             $pattern = $token.Item1
             log fndkys trace "Using '$pattern' to find matches"
-            $matches = [regex]::matches($f, $pattern) #, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+
+            $matches = $pattern.matches($f) #, [System.Text.RegularExpressions.RegexOptions]::Multiline)
 
             # Grab the value for each match, if it doesn't have a key make one
             foreach ( $m in $matches ) {
@@ -983,6 +986,7 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
             $script:log,$script:showDebug,$script:logfile,$script:MaxLogFileSize,$script:LogHistory,$Script:JobName,$Script:JobId = $_env
             log-job-start
 
+            Wait-Debugger
             Find-Keys $file $flags $IgnoredStrings $killerFlags
             log SctStr trace "Found all the keys in $file"
         }
@@ -1152,6 +1156,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $Pr
                 # Provide the name of the job and then the 'jobid' (which is just the date in hex and then shortened)
                 $j[3][-1] += $j[0]; $j[3][-1] += ([char[]]$JobDateId[-6..-1] -join '')
                 Start-Job -Name $j[0] -InitializationScript $j[1] -ScriptBlock $j[2] -ArgumentList $j[3] | Out-Null
+                Debug-Job -Name $j[0]
                 log manjob trace "Started Job named '$($j[0])'. There are $($jobQ.Count) jobs remaining"
             }
         }
