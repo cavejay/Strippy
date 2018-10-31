@@ -928,15 +928,15 @@ $JobFunctions = {
         } else {
             $f = [IO.file]::ReadAllLines( $fp ) -join "`r`n"
         }
-        
+
         # Process file for tokens
         $count = 1
         foreach ( $token in $flags ) {
             Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++/$flags.count)*100)
             $pattern = $token.Item1
             log fndkys trace "Using '$pattern' to find matches"
-            $matches = [regex]::matches($f, $pattern)
-            
+            $matches = [regex]::matches($f, $pattern) #, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+
             # Grab the value for each match, if it doesn't have a key make one
             foreach ( $m in $matches ) {
                 $mval = $m.groups[1].value
