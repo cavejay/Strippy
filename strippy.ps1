@@ -1069,6 +1069,7 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
     # If we only proc'd one file then return that
     if ($keylists.Count -eq 1) {
         log mrgStr trace "Shortcutting for one file"
+        log timing trace "[END] Merging Keylists"
         return $keylists[0]
     }
     
