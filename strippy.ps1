@@ -907,7 +907,7 @@ $JobFunctions = {
     function Find-Keys ( [string] $fp, $flags, [System.Collections.Generic.HashSet[String]]$IgnoredStringsSet, [String] $killerFlags ) {
         log timing trace "[START] Finding Keys from $fp"
 
-        # dictionary to populate with Hashsets
+        # dictionary to populate with <key><kind> values
         $Keys = New-Object 'System.Collections.Generic.Dictionary[String,String]'
 
         # Remove entire lines that we don't want.
@@ -1060,13 +1060,13 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
     
     $keys = New-Object 'System.Collections.Generic.Dictionary[String,String]'
     $totalKeys = $keylists | ForEach-Object { $result = 0 } { $result += $_.Count } { $result }
-    $currentKey = 0
+    $keyIndex = 0
     
     # add everything to the set
     $keylistIndex = 0
     ForEach ($keylist in $keylists) {
         ForEach ($Key in $keylist.Keys) {
-            Write-Progress -Activity "Merging Keylists" -PercentComplete (($currentKey++ / $totalKeys) * 100) -ParentId $_tp
+            Write-Progress -Activity "Gathering Keys" -PercentComplete (($keyIndex++ / $totalKeys) * 100) -ParentId $_tp
             
             # adding key to set will error on second add, so check first.
             if (!$keys.containsKey($key)) {
@@ -1075,12 +1075,13 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
         }
         $perc = (++$keylistIndex) / ($keylists.count)
         log mrgStr trace "Done $($perc*100)% of keylists"
-        Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $($perc * ($PCompleteEnd - $PCompleteStart) + $PCompleteStart)
+        Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $($perc * (($PCompleteEnd - $PCompleteStart) / 2) + $PCompleteStart)
     }
-    Write-Progress -Activity "Merging Keylists" -PercentComplete 100 -ParentId $_tp -Completed
+    Write-Progress -Activity "Gathering Keys" -PercentComplete 100 -ParentId $_tp -Completed
 
     $output = @{}
     $nameCounts = @{}
+    $keyIndex = 0
     foreach ($key in $keys.Keys) {
         $possiblename = ''; $count = 0
         # log gnkynm debug $token.Item2
@@ -1089,12 +1090,20 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
             # If we've not heard of this key before, make it
             $nameCounts[$keys.$key] = 0
         }
-
+        
         $nameCounts[$keys.$key]++ # increment our count for this key 
         $newname = "$( $keys.$key )$( $nameCounts[$keys.$key] )"
-
+        
         $output.$newname = $key
+
+        # show progress
+        $perc = (++$keyIndex) / ($keys.Keys.count)
+        log mrgStr debug "Generated $($perc*100)% of key labels"
+        Write-Progress -Activity "Generating Key labels" -PercentComplete (($keyIndex / $keys.Keys.count) * 100) -ParentId $_tp
+        Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $($perc * (($PCompleteEnd - $PCompleteStart) / 2) + $PCompleteStart + ($PCompleteEnd - $PCompleteStart) / 2)
+
     }
+    Write-Progress -Activity "Generating Key labels" -PercentComplete 100 -ParentId $_tp -Completed
 
     log timing trace "[END] Merging Keylists"
     return $output
