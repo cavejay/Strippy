@@ -5,3 +5,4 @@
 !tests
 !*.Tests.ps1
 !logAnalyzer.ps1
+!timecheck.ps1
