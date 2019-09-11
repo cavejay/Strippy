@@ -87,6 +87,8 @@ param (
     [Switch] $Recurse = $false,
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
     [Switch] $InPlace = $false,
+    # Do not include the sanitisation meta data in output
+    [switch] $noHeaderInOutput = $false,
     # Help flags that return help information for -h -help types
     [Switch] $h = $false,
     [Switch] $help = $false,
@@ -278,6 +280,7 @@ log params Trace "Sanitisation Target:              $((resolve-path $file -Error
 log params Trace "Silent Mode:                      $Silent"
 log params Trace "Recursive Searching:              $Recurse"
 log params Trace "In-place sanitisation:            $InPlace"
+log params Trace "No sanitisation header:           $noHeaderInOutput"
 log params Trace "Creating a new Config file:       $MakeConfig"
 log params Trace "Logging enabled:                  $log"
 log params Trace "Destination Logfile:              $((resolve-path $logfile -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
@@ -999,6 +1002,12 @@ function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerF
 function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [string] $rootFolder, [String] $killerFlags, [bool] $inPlace, [int] $PCompleteStart, [int] $PCompleteEnd) {
     log timing trace "[START] Sanitising File(s)"
     $q = New-Object System.Collections.Queue
+
+    # used to resolve https://github.com/cavejay/Strippy/issues/39
+    # if the switch flagged then nothing will come through
+    if ($script:noHeaderInOutput) {
+        $script:config.SanitisedFileFirstLine = ''
+    }
 
     # Sanitise each of the files with the final keylist and output them with Save-file
     ForEach ($file in $files) {
