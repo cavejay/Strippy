@@ -52,7 +52,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.1.3 - 180327
+    Version: 2.1.4 - 191109
     Compatability: Powershell 5+
 
 .LINK
@@ -274,7 +274,7 @@ if ( $File -eq "" ) {
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    v2.1.0                         ||"
+log init Trace "   ||    Version:    v2.1.4                         ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $((resolve-path $file -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Silent Mode:                      $Silent"
