@@ -32,4 +32,4 @@ It is very possible that new log messages that need to be sanitised are added in
 The configFiles directory of this repo contains work-in-progress config files for particular applications. These are maintained by me on an as needed basis and that can be infrequent.
 
 * [Dynatrace Network Application Monitoring](configFiles/nam.conf)
-* [Dynatrace Managed/SaaS](configFiles/dt.conf)
+* [Dynatrace Managed/SaaS](configFiles/dt-managed.conf)
