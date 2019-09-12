@@ -112,6 +112,8 @@ param (
     [Parameter(ParameterSetName = "input")][Switch] $Recurse = $false,
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened
     [Parameter(ParameterSetName = "input")][Switch] $InPlace = $false,
+    # Should Strippy handle .zip archives it finds in the file/folders?
+    [Parameter(ParameterSetName = "input")][switch] $unpackZips,
     # Do not include the sanitisation meta data in output
     [Parameter(ParameterSetName = "input")][switch] $noHeaderInOutput = $false,
     # A shortcut for -AlternateKeylistOutput 
@@ -1450,8 +1452,8 @@ if ( $isDir ) {
         $OutputFolder = $(Get-Item "$f").FullName
     } # Make the new dir
 
-    # Support Paths with wildcards at somepoint
 }
+# Support Paths with wildcards at somepoint
 elseif ( $File -contains '*' ) {
     # Resolve the wildcard used in the thingy.
     # Check that there's actually files.
@@ -1461,8 +1463,8 @@ elseif ( $File -contains '*' ) {
     log ioproc error "Paths with wildcards are not yet supported"
     Clean-Up
 
-    # We also want to support archives by treating them as folders we just have to unpack first
 }
+# We also want to support archives by treating them as folders we just have to unpack first
 elseif ( $( get-item $File ).Extension -eq '.zip') {
     log ioproc trace "User attempted to sanitise a .zip file. This will hopefully be supported in the future. Just unpack it for now."
     log ioproc error "Archives are not yet supported"
