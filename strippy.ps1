@@ -1,4 +1,4 @@
-#Requires -Version 5
+﻿#Requires -Version 5
 
 <#
 .SYNOPSIS
@@ -63,7 +63,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.1.4 - 191109
+    Version: 2.1.5 - 191109
     Compatability: Powershell 5+
 
 .LINK
@@ -312,7 +312,7 @@ if ( $File -eq "" -and -not $makeConfig ) {
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    v2.1.4                         ||"
+log init Trace "   ||    Version:    2.1.5                         ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $(show-path $file)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Key file:                         $(@('Unset',(show-path $KeyFile))[$KeyFile -ne ''])"
