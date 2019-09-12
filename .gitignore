@@ -1,9 +1,18 @@
 /*
 /*/
-!.gitignore
-!strippy.ps1
+
+# folders
 !tests
+!configFiles
+
+# main scripts
+!strippy.ps1
+!version-bumper.ps1
 !*.Tests.ps1
 !logAnalyzer.ps1
 !timecheck.ps1
-!configFiles
+
+# files
+!.gitignore
+!LICENSE
+!README.md
