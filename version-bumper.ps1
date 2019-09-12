@@ -76,4 +76,4 @@ git tag "v$bumpedVersion"
 
 write-host -ForegroundColor Green "Pushing changes to Origin"
 # update tags in origin
-git push origin --tags
+git push origin master --tags
