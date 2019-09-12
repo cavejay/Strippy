@@ -88,45 +88,53 @@
     - use powershell options for directory and file edits
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'input')]
 param (
-    # The File or Folder you wish to sanitise
-    [String] $File,
-    # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
-    [Switch] $Silent = $false,
-    # Looks for log files throughout a directory tree rather than only in the first level
-    [Switch] $Recurse = $false,
-    # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened.
-    [Switch] $InPlace = $false,
-    # Do not include the sanitisation meta data in output
-    [switch] $noHeaderInOutput = $false,
-    # Help flags that return help information for -h -help types
-    [Switch] $h = $false,
-    [Switch] $help = $false,
+    <#              Help flags that return help information for -h -help types              #>
+    # Help flags that return help information for -h types
+    [Parameter(Position = 0, ParameterSetName = "help")][Switch] $h,
+    [Parameter(ParameterSetName = "help")][Switch] $help,
+
+
+    <#              Config things               #>
     # Creates a barebones strippy.conf file for the user to fill edit
-    [Switch] $MakeConfig,
+    [Parameter(Position = 0, ParameterSetName = "makeconfig", Mandatory = $false)][Switch] $makeConfig,
+
+
+    <#              Input Settings              #>
+    # The File or Folder you wish to sanitise
+    [Parameter(Position = 0, ParameterSetName = "input")][String] $File,
+    # Specifies a previously generated keylist file to import keys from for this sanitisation
+    [Parameter(Position = 1, ParameterSetName = "input")][String] $KeyFile, 
+    # Specifies a config file to use rather than the default local file or no file at all
+    [Parameter(Position = 2, ParameterSetName = "input")][String] $ConfigFile,
+    # Looks for log files throughout a directory tree rather than only in the first level
+    [Parameter(ParameterSetName = "input")][Switch] $Recurse = $false,
+    # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened
+    [Parameter(ParameterSetName = "input")][Switch] $InPlace = $false,
+    # Do not include the sanitisation meta data in output
+    [Parameter(ParameterSetName = "input")][switch] $noHeaderInOutput = $false,
+    # A shortcut for -AlternateKeylistOutput 
+    [Parameter(ParameterSetName = "input")][String] $ko,
+    # Specifies an alternate name and path for the keylist file
+    [Parameter(ParameterSetName = "input")][String] $AlternateKeyListOutput = $ko,
+    # A shortcut for -AlternateOutputFolder 
+    [Parameter(ParameterSetName = "input")][String] $o, 
+    # Specifies an alternate path or file for the sanitised file
+    [Parameter(ParameterSetName = "input")][String] $AlternateOutputFolder = $o, 
+    # The tool will run silently, without printing to the terminal and exit with an error if it needed user input
+    [Parameter(ParameterSetName = "input")][Switch] $Silent = $false,
+    # How threaded can this process become?
+    [Parameter(ParameterSetName = "input")][int] $MaxThreads = 5,
+    
+
+    <#              Logging Settings                #>
     # Perform logging for this execution
     [Switch] $log = $false,
     # The specific log file to log to. This is useless unless the log switch is used
     [String] $logfile = ".\strippy.log",
     # Show absolutely all log messages. This will create much larger logs
     [Switch] $showDebug = $false,
-    # A shortcut for -AlternateKeylistOutput 
-    [String] $ko,
-    # Specifies an alternate name and path for the keylist file
-    [String] $AlternateKeyListOutput = $ko,
-    # A shortcut for -AlternateOutputFolder 
-    [String] $o, 
-    # Specifies an alternate path or file for the sanitised file
-    [String] $AlternateOutputFolder = $o, 
-    # Specifies a previously generated keylist file to import keys from for this sanitisation
-    [String] $KeyFile, 
-    # Archive the folder or file after sanitising it
-    # [switch] $zip, 
-    # Specifies a config file to use rather than the default local file or no file at all.
-    [String] $ConfigFile,
-    # How threaded can this process become?
-    [int] $MaxThreads = 5,
     # How big can a log file get before it's shuffled
     [int] $MaxLogFileSize = 10MB,
     # Max number of log files created by the script
@@ -268,6 +276,25 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
     }
 }
 
+function replace-null ($valIfNull, [Parameter(ValueFromPipeline = $true)]$TestVal) {
+    return ($null, $TestVal, $valIfNull -ne $null)[0]
+}
+
+function show-path ($path) {
+    $path = if ($path -eq '' -or $null -eq $path) {
+        "Unset"
+    }
+    else {
+        try {
+            (Resolve-Path $path -ErrorAction Stop).path
+        }
+        catch {
+            "$path (unresolveable)"
+        }
+    }
+    return $path
+}
+
 # Help flag checks
 if ($h -or $help) {
     log params trace "Strippy was started help flags. Showing the get-help output for the script and exiting"
@@ -276,7 +303,7 @@ if ($h -or $help) {
 }
 
 # Usage todo need to make this usable without the reliance on get-help or powershell in general. 
-if ( $File -eq "" ) {
+if ( $File -eq "" -and -not $makeConfig ) {
     log params trace "Strippy was started with no file. Showing the get-help output for the script and exiting"
     Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name) -Detailed
     exit 0
@@ -287,20 +314,20 @@ log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
 log init Trace "   ||    Version:    v2.1.4                         ||"
 log params Trace "Strippy was started with the parameters:"
-log params Trace "Sanitisation Target:              $((resolve-path $file -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
+log params Trace "Sanitisation Target:              $(show-path $file)" # try to resolve the file here. Show nothing if it fails
+log params Trace "Key file:                         $(@('Unset',(show-path $KeyFile))[$KeyFile -ne ''])"
+log params Trace "Config file:                      $(@('Unset',(show-path $ConfigFile))[$ConfigFile -ne ''])"
 log params Trace "Silent Mode:                      $Silent"
 log params Trace "Recursive Searching:              $Recurse"
 log params Trace "In-place sanitisation:            $InPlace"
 log params Trace "No sanitisation header:           $noHeaderInOutput"
 log params Trace "Creating a new Config file:       $MakeConfig"
-log params Trace "Logging enabled:                  $log"
-log params Trace "Destination Logfile:              $((resolve-path $logfile -ErrorAction 'SilentlyContinue').path)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Showing Debug logging:            $showDebug"
-log params Trace "Alternate Keylist Output file:    $(@('Unset',$AlternateKeyListOutput)[$AlternateKeyListOutput -ne ''])"
-log params Trace "Alternate Output folder files:    $(@('Unset',$AlternateOutputFolder)[$AlternateOutputFolder -ne ''])"
-log params Trace "Key file:                         $(@('Unset',$KeyFile)[$KeyFile -ne ''])"
-log params Trace "Config file:                      $(@('Unset',$ConfigFile)[$ConfigFile -ne ''])"
+log params Trace "Alternate Keylist Output file:    $(@('Unset',(show-path $AlternateKeyListOutput))[$AlternateKeyListOutput -ne ''])"
+log params Trace "Alternate Output folder files:    $(@('Unset',(show-path $AlternateOutputFolder))[$AlternateOutputFolder -ne ''])"
 log params Trace "Maximum parrallel threads:        $MaxThreads"
+log params Trace "Logging enabled:                  $log"
+log params Trace "Destination Logfile:              $(show-path $logfile)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Max log file size:                $MaxLogFileSize"
 log params Trace "Number of Log files kept:         $LogHistory"
 
@@ -371,7 +398,6 @@ if ( $MakeConfig ) {
     exit 0
 }
 
-
 # Check we're dealing with an actual file
 if ( -not (Test-Path $File) ) {
     log params error "$File does not exist. Exiting script"
@@ -379,7 +405,7 @@ if ( -not (Test-Path $File) ) {
 }
 
 log timing trace "[Start] Loading function definitions"
-#######################################################################################33
+#########################################################################
 # Function definitions
 
 # This is a dupe of the same function in the JobFunctions Scriptblock
