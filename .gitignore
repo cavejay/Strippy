@@ -9,8 +9,8 @@
 !strippy.ps1
 !version-bumper.ps1
 !*.Tests.ps1
-!logAnalyzer.ps1
 !timecheck.ps1
+!zipcheck.ps1
 
 # files
 !.gitignore

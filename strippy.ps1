@@ -113,7 +113,7 @@ param (
     # Destructively sanitises the file. There is no warning for this switch. If you use it, it's happened
     [Parameter(ParameterSetName = "input")][Switch] $InPlace = $false,
     # Should Strippy handle .zip archives it finds in the file/folders?
-    [Parameter(ParameterSetName = "input")][switch] $unpackZips,
+    [Parameter(ParameterSetName = "input")][switch] $unpackZip,
     # Do not include the sanitisation meta data in output
     [Parameter(ParameterSetName = "input")][switch] $noHeaderInOutput = $false,
     # A shortcut for -AlternateKeylistOutput 
@@ -323,6 +323,7 @@ log params Trace "Silent Mode:                      $Silent"
 log params Trace "Recursive Searching:              $Recurse"
 log params Trace "In-place sanitisation:            $InPlace"
 log params Trace "No sanitisation header:           $noHeaderInOutput"
+log params Trace "Unpack encountered zip files      $unpackZip"
 log params Trace "Creating a new Config file:       $MakeConfig"
 log params Trace "Showing Debug logging:            $showDebug"
 log params Trace "Alternate Keylist Output file:    $(@('Unset',(show-path $AlternateKeyListOutput))[$AlternateKeyListOutput -ne ''])"
@@ -1275,6 +1276,14 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     return $finalKeyList, $sanitisedFilenames
 }
 
+function zip-unpacker ($ZipFiles) {
+
+}
+
+function zip-cleaner () {
+
+}
+
 log timing trace "[End] Loading function definitions"
 
 ####################################################################################################
@@ -1409,10 +1418,22 @@ if ( $isDir ) {
     log ioproc trace "$File is a folder"
 
     # Get all the files
-    if ($Recurse) {
-        log ioproc trace "Recursive mode means we get all the files"
-        $files = Get-ChildItem $File -Recurse -File
+    if ($script:Recurse) {
+        log ioproc trace "Recursive mode means we get all the files to a depth of 10 folders"
+        $files = Get-ChildItem $File -Recurse -File -Depth 10
         log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
+
+        # if we've been told to unpack .zips then find and expand those
+        if ($script:unpackZip) {
+            $zipfiles = ($files | Where-Object -Property Extension -EQ '.zip')
+            log ioproc trace "Found $((,$zipfiles).length) zip files: $($zipfiles -join ', ')"
+
+            # pass to the zip-unpacker
+            zip-unpacker (,$zipfiles) -Depth 5
+
+            # generate a new list that should no longer contain unpackable zip archives
+            $files = Get-ChildItem $file -Recurse -File -Depth 10
+        }
     }
     else {
         log ioproc trace "Normal mode means we only get the files at the top directory"
@@ -1466,14 +1487,18 @@ elseif ( $File -contains '*' ) {
 }
 # We also want to support archives by treating them as folders we just have to unpack first
 elseif ( $( get-item $File ).Extension -eq '.zip') {
-    log ioproc trace "User attempted to sanitise a .zip file. This will hopefully be supported in the future. Just unpack it for now."
-    log ioproc error "Archives are not yet supported"
-    # unpack
-    # run something similar to the folder code above
-    # add files that we want to process to $filestoprocess
-    # set a flag or similar to handle the repacking of the files into a .zip
+    log ioprov trace "User has provided a .zip file. It will now be unpacked and processed"
+    # log ioproc trace "User attempted to sanitise a .zip file. This will hopefully be supported in the future. Just unpack it for now."
+    # log ioproc error "Archives are not yet supported"
 
     # It's not a folder, so go for it
+    zip-unpacker (,(Get-Item $file))
+
+    # inspect the unarchived folder and pull out the files.
+
+    if ($script:Recurse) {
+        
+    }
 }
 else {
     log ioproc trace "$File is a file. Adding only it to the list of files to process"
@@ -1481,6 +1506,8 @@ else {
     # Add the file to process to the list
     $filesToProcess += $(get-item $File).FullName
 }
+
+exit
 
 # Redirect the output folder if necessary
 if ($AlternateOutputFolder) {
