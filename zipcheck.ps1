@@ -342,13 +342,11 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
     log timing trace "[END] Sanitising File(s)"
     return $sanitisedFilenames
 }
-
-
 function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     log timing trace "[START] ZIP Unpacker (D$depth)"
 
     # ensure $zipfiles are all .zip files
-    $zipfiles = $ZipFiles | ForEach-Object { get-item $_ } |  Where-Object -Property Extension -EQ '.zip' | Select-Object -ExpandProperty fullname
+    $zipfiles = $ZipFiles | ForEach-Object { get-item $_ } | Where-Object -Property Extension -in '.zip','.gz' | Select-Object -ExpandProperty fullname
     log unzipr trace "Looking to unpack $($zipfiles.Length) files: `"$($zipfiles -join '", "')`""
 
     $unpackedFolders = @()
@@ -357,7 +355,7 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     foreach ($archive in $zipfiles) {
         $extractedTo = make-archiveFolder $archive
         $unpackedFolders += $extractedTo.fullname
-        Expand-Archive -Path $archive -DestinationPath $extractedTo
+        Expand-Archive2 -Path $archive -DestinationPath $extractedTo.fullname
     }
 
     log unzipr trace "Successfully unpacked archives to: `"$($unpackedFolders -join '", "')`""
@@ -365,7 +363,7 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     # if depth is 1 we've gone as far as we should otherwise lets go deeper
     if ($Depth -gt 1) {
         # analyse their unpacked contents
-        $childrenZipFiles = Get-ChildItem $unpackedFolders -Recurse:$script:Recurse | Where-Object -Property Extension -EQ '.zip' | Select-Object -ExpandProperty FullName
+        $childrenZipFiles = Get-ChildItem $unpackedFolders -Recurse:$script:Recurse | Where-Object -Property Extension -in '.zip','.gz' | Select-Object -ExpandProperty FullName
         
 
         # if we need to go deeper, go again (recursively)
@@ -377,6 +375,42 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     }
 
     log timing trace "[End] ZIP Unpacker (D$depth)"
+}
+
+<#
+    Extends ExpandArchive to include support for .gz files
+#>
+function Expand-Archive2 ([String]$Path, [String]$DestinationPath) {
+    $extension = (Get-item $path).Extension
+
+    log exarc2 trace "Starting expansaion of archive file $path to $destinationpath. Type: $extension"
+
+    switch ($extension) {
+        '.gz' { 
+            $destinationpath = Join-Path $destinationpath (get-item $path).baseName
+
+            $in = New-Object System.IO.FileStream $Path, ([IO.FileMode]::Open), ([IO.FileAccess]::Read), ([IO.FileShare]::Read)
+            $output = New-Object System.IO.FileStream $DestinationPath, ([IO.FileMode]::Create), ([IO.FileAccess]::Write), ([IO.FileShare]::None)
+            $gzipStream = New-Object System.IO.Compression.GzipStream $in, ([IO.Compression.CompressionMode]::Decompress)
+        
+            $buffer = New-Object byte[](1024)
+            while ($true) {
+                $read = $gzipstream.Read($buffer, 0, 1024)
+                if ($read -le 0) { break }
+                $output.Write($buffer, 0, $read)
+            }
+        
+            $gzipStream.Close()
+            $output.Close()
+            $in.Close()
+        }
+        '.zip' {
+            Expand-Archive -Path $path -DestinationPath $DestinationPath
+        }
+        Default {
+            Expand-Archive -Path $path -DestinationPath $DestinationPath
+        }
+    }
 }
 
 function zip-cleaner () {
@@ -397,7 +431,7 @@ function make-archiveFolder ([Parameter(ValueFromPipeline = $true)]$archive) {
     log timing trace "[START] Generate Archive Folder name"
     [System.IO.FileSystemInfo]$file = [System.IO.FileSystemInfo] (get-item $archive)
     
-    $unpackedDir = Join-Path -Path $file.DirectoryName -ChildPath "$($file.baseName)-zip"
+    $unpackedDir = Join-Path -Path $file.DirectoryName -ChildPath "$($file.baseName)-$($file.extension -replace '\.','')"
     $unpackedDir = $unpackedDir -replace ' ', '_'
     
     if (!(Test-Path -Path $unpackedDir -PathType Container)) {
@@ -412,7 +446,7 @@ function make-archiveFolder ([Parameter(ValueFromPipeline = $true)]$archive) {
 $files = @()
 
 # File is a .zip
-if ((get-item $file).Extension -eq '.zip') {
+if ((get-item $file).Extension -in '.zip', '.gz' ) {
     
     # Unpack the top level zip
     $_file = $file
@@ -440,8 +474,8 @@ elseif (Test-Path -Path $file -PathType Container) {
     $files = Get-ChildItem -Recurse:$script:Recurse -Depth 10 -Path $file
 
     # if we should unpack zips and there are some
-    if ($script:unpackZip -and ($files | Where-Object -Property Extension -EQ '.zip' | Measure-Object -Line) -gt 0) {
-        $zipfiles = $files | Where-Object -Property Extension -EQ '.zip'
+    if ($script:unpackZip -and ($files | Where-Object -Property Extension -in '.zip', '.gz' | Measure-Object -Line) -gt 0) {
+        $zipfiles = $files | Where-Object -Property Extension  -in '.zip', '.gz' 
 
         zip-unpacker $zipfiles -Depth @(1, 5)[$script:Recurse]
     }
@@ -459,7 +493,9 @@ $files = $files | Where-Object {
     if (!$val) {
         log ioproc trace "$($_.FullName) will not be sanitised"
     }
-    $val
+    else {
+        $val
+    }
 } | ForEach-Object { $_.FullName }
 log ioproc debug "$($files.Length) Files left after filtering: `"$($files -join ', ')`""
 
@@ -475,3 +511,57 @@ if ( $files.Length -eq 0 ) {
 $filesToProcess = $files
 
 $filesToProcess
+
+<#
+# BLOCK 1: Create and open runspace pool, setup runspaces array with min and max threads
+$pool = [RunspaceFactory]::CreateRunspacePool(1, [int]$env:NUMBER_OF_PROCESSORS+1)
+$pool.ApartmentState = "MTA"
+$pool.Open()
+$runspaces = $results = @()
+# BLOCK 2: Create reusable scriptblock. This is the workhorse of the runspace. Think of it as a function.
+$scriptblock = {
+Param (
+[string]$connectionString,
+[object]$batch,
+[int]$batchsize
+)
+$bulkcopy = New-Object Data.SqlClient.SqlBulkCopy($connectionstring,"TableLock")
+$bulkcopy.DestinationTableName = "mytable"
+$bulkcopy.BatchSize = $batchsize
+$bulkcopy.WriteToServer($batch)
+$bulkcopy.Close()
+$dtbatch.Clear()
+$bulkcopy.Dispose()
+$dtbatch.Dispose()
+# return whatever you want, or don't.
+return $error[0]
+}
+# BLOCK 3: Create runspace and add to runspace pool
+if ($datatable.rows.count -eq 50000) {
+$runspace = [PowerShell]::Create()
+$null = $runspace.AddScript($scriptblock)
+$null = $runspace.AddArgument($connstring)
+$null = $runspace.AddArgument($datatable)
+$null = $runspace.AddArgument($batchsize)
+$runspace.RunspacePool = $pool
+# BLOCK 4: Add runspace to runspaces collection and "start" it
+# Asynchronously runs the commands of the PowerShell object pipeline
+$runspaces += [PSCustomObject]@{ Pipe = $runspace; Status = $runspace.BeginInvoke() }
+$datatable.Clear()
+}
+# BLOCK 5: Wait for runspaces to finish
+while ($runspaces.Status.IsCompleted -notcontains $true) {}
+# BLOCK 6: Clean up
+foreach ($runspace in $runspaces ) {
+# EndInvoke method retrieves the results of the asynchronous call
+$results += $runspace.Pipe.EndInvoke($runspace.Status)
+$runspace.Pipe.Dispose()
+}
+$pool.Close() 
+$pool.Dispose()
+# Bonus block 7
+# Look at $results to see any errors or whatever was returned from the runspaces
+
+
+
+#>
