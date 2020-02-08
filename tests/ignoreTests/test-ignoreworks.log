@@ -1,0 +1,12 @@
+By default ignores are usually nothing special and used to block out words like null.
+
+This test though is mainly to ensure parsing of ignores that include escaped '"'s works as expected.
+The attached conf that should be used here will sanitise anything after a ': ' like '\w: (.+)$' so this line should not be tampered.
+
+This should be Sanitized: doNotIgnoreThis - 
+This should not be Sanitized: "pleaseignore" - 
+This should not be Sanitized: null - 
+
+Stupid Test - dumbtest
+
+Expected output is that only ignorethis is removed.

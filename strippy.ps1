@@ -1,4 +1,4 @@
-﻿#Requires -Version 5
+#Requires -Version 5
 
 <#
 .SYNOPSIS
@@ -63,7 +63,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.1.5 - 191109
+    Version: 2.1.6 - 20200208
     Compatability: Powershell 5+
 
 .LINK
@@ -312,7 +312,7 @@ if ( $File -eq "" -and -not $makeConfig ) {
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    2.1.5                         ||"
+log init Trace "   ||    Version:    2.1.6                         ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $(show-path $file)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Key file:                         $(@('Unset',(show-path $KeyFile))[$KeyFile -ne ''])"
@@ -591,7 +591,7 @@ function proc-config-file ( $cf ) {
                     # Array option
                 }
                 elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
-                    $config[$lineKey] = ($lineValue[1..($lineValue.length - 2)] -join '') -split "`",\s*`""
+                    $config[$lineKey] = ($lineValue[1..($lineValue.length - 2)] -join '') -split "`",\s*`"" -replace '\\"','"'
 
                     # String option
                 }
@@ -1519,3 +1519,4 @@ log timing message "Script completed in $_delta seconds"
 
 Clean-Up -NoExit
 log timing trace "[End] Wrap up"
+
