@@ -160,62 +160,6 @@ function replace-null ($valIfNull, [Parameter(ValueFromPipeline = $true)]$TestVa
     return ($null, $TestVal, $valIfNull -ne $null)[0]
 }
 
-function Get-FileEncoding {
-    # This function is only included here to preserve this as a single file.
-    # Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
-    [CmdletBinding()]
-    param (
-        [Alias("PSPath")]
-        [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName = $True)]
-        [String]$Path,
-
-        [Parameter(Mandatory = $False)]
-        [System.Text.Encoding]$DefaultEncoding = [System.Text.Encoding]::ASCII
-    )
-    process {
-        [Byte[]]$bom = Get-Content -Encoding Byte -ReadCount 4 -TotalCount 4 -Path $Path
-        $encoding_found = $false
-        foreach ($encoding in [System.Text.Encoding]::GetEncodings().GetEncoding()) {
-            $preamble = $encoding.GetPreamble()
-            if ($preamble -and $bom) {
-                foreach ($i in 0..$preamble.Length) {
-                    if ($preamble[$i] -ne $bom[$i]) {
-                        break
-                    }
-                    elseif ($i -eq $preable.Length) {
-                        $encoding_found = $encoding
-                    }
-                }
-            }
-        }
-        if (!$encoding_found) {
-            $encoding_found = $DefaultEncoding
-        }
-        $encoding_found
-    }
-}
-
-function Get-MimeType() {
-    # This function is only included here to preserve this as a single file.
-    # From https://gallery.technet.microsoft.com/scriptcenter/PowerShell-Function-to-6429566c#content
-    param([parameter(Mandatory = $true, ValueFromPipeline = $true)][ValidateNotNullorEmpty()][System.IO.FileInfo]$CheckFile) 
-    begin { 
-        Add-Type -AssemblyName "System.Web"         
-        [System.IO.FileInfo]$check_file = $CheckFile 
-        [string]$mime_type = $null 
-    } 
-    process { 
-        if (test-path $check_file) {  
-            $mime_type = [System.Web.MimeMapping]::GetMimeMapping($check_file.FullName)  
-        }
-        else { 
-            $mime_type = "false" 
-        } 
-    } 
-    end { return $mime_type } 
-}
-
-
 function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs, [int] $ProgressStart, [int] $ProgressEnd) {
     log timing trace "[START] Managing Job Execution"
     log manjob trace "Clearing all background jobs (again just in case)"
@@ -346,7 +290,7 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     log timing trace "[START] ZIP Unpacker (D$depth)"
 
     # ensure $zipfiles are all .zip files
-    $zipfiles = $ZipFiles | ForEach-Object { get-item $_ } | Where-Object -Property Extension -in '.zip','.gz' | Select-Object -ExpandProperty fullname
+    $zipfiles = $ZipFiles | ForEach-Object { get-item -path $_ } | Where-Object -Property Extension -in '.zip','.gz' | Select-Object -ExpandProperty fullname
     log unzipr trace "Looking to unpack $($zipfiles.Length) files: `"$($zipfiles -join '", "')`""
 
     $unpackedFolders = @()
@@ -364,10 +308,9 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     if ($Depth -gt 1) {
         # analyse their unpacked contents
         $childrenZipFiles = Get-ChildItem $unpackedFolders -Recurse:$script:Recurse | Where-Object -Property Extension -in '.zip','.gz' | Select-Object -ExpandProperty FullName
-        
 
         # if we need to go deeper, go again (recursively)
-        if ((, $childrenZipFiles).Length -gt 0) {
+        if ($childrenZipFiles.Length -gt 0) {
             log unzipr trace "$($childrenZipFiles.length) additional log file(s) were found at depth '$depth'. Recursing deeper"
             log unzipr debug "Files to unzip next iteration: $($childrenZipFiles -join ', ')"
             zip-unpacker $childrenZipFiles -Depth ($depth - 1)
@@ -413,19 +356,15 @@ function Expand-Archive2 ([String]$Path, [String]$DestinationPath) {
     }
 }
 
-function zip-cleaner () {
-
+<#
+    Removes all .zip and .gz file in a directory system
+#>
+function zip-cleaner ($path, $fileTypes = @('.zip','.gz')) {
+    $files = Get-ChildItem -Recurse -Path $path -Depth 5 -File
+    $zipfiles  = $files | Where-Object -Property Extension -in $fileTypes | Select-Object -ExpandProperty fullname
+    $zipfiles | Remove-Item | Out-Null  
+    # $zipfiles | Select-Object -ExpandProperty Fullname | remove-item
 }
-
-log main trace '                  ==================================                         '
-log main trace '==================                                  ========================='
-log main trace '                  ==================================                         '
-
-$file = 'C:\users\michael.ball\Desktop\tmp\Dynatrace_Support_Archive_88229d42-c39e-4825-b180-44099bc5cbd4 (1).zip'
-
-log main message "Unpacking $file"
-
-remove-item -force -Recurse "C:\users\michael.ball\Desktop\tmp\Dynatrace_Support_Archive_88229d42-c39e-4825-b180-44099bc5cbd4_(1)-zip"
 
 function make-archiveFolder ([Parameter(ValueFromPipeline = $true)]$archive) {
     log timing trace "[START] Generate Archive Folder name"
@@ -437,11 +376,29 @@ function make-archiveFolder ([Parameter(ValueFromPipeline = $true)]$archive) {
     if (!(Test-Path -Path $unpackedDir -PathType Container)) {
         log mkahdr message "Created previously non-existent dir '$unpackedDir' for contents of archive '$archive'"
         New-Item -Path $unpackedDir -ItemType Directory -Force | Out-Null
+    } else {
+        log mkahdr debug "make-archiveFolder did nothing - '$unpackedDir' already existed"
     }
 
     log timing trace "[End] Generate Archive Folder name"
     return get-item $unpackedDir
 }
+
+log main trace '                  ==================================                         '
+log main trace '==================                                  ========================='
+log main trace '                  ==================================                         '
+
+# $file = 'C:\users\michael.ball\Desktop\tmp\Dynatrace_Support_Archive_88229d42-c39e-4825-b180-44099bc5cbd4 (1).zip'
+
+log main message "Unpacking $file"
+$output_file = ($file | make-archiveFolder)
+
+log main trace 'clearing previously unpacked files'
+remove-item -force -Recurse -Path $output_file
+
+# remove-item -force -Recurse "C:\users\michael.ball\Desktop\tmp\Dynatrace_Support_Archive_88229d42-c39e-4825-b180-44099bc5cbd4_(1)-zip"
+
+
 
 $files = @()
 
@@ -481,20 +438,18 @@ elseif (Test-Path -Path $file -PathType Container) {
     }
 }
 
-exit
+log main message "removing original .zip files"
+zip-cleaner -path $output_file
 
-# Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
+log ioproc debug "$($files.Length) Files left before filtering"
+# Filter out files that have been marked as sanitised or look suspiscious based on some nice functions that you need to write // TODO
 log ioproc trace "Filter out files that aren't sanitisable"
-$files = $files | Where-Object {
-    $val = ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
-    ( $(Get-MimeType -CheckFile $_.FullName) -match "image") -and -not
-    ( $_.name -like '*.sanitised.*')
-
-    if (!$val) {
+$files = Get-ChildItem -Recurse -Depth 20 -Path $output_file | Where-Object {
+    if (( $_.name -like '*.sanitised.*')) {
         log ioproc trace "$($_.FullName) will not be sanitised"
     }
     else {
-        $val
+        $_
     }
 } | ForEach-Object { $_.FullName }
 log ioproc debug "$($files.Length) Files left after filtering: `"$($files -join ', ')`""
@@ -504,11 +459,12 @@ log ioproc trace "Checking number of files after filtering"
 if ( $files.Length -eq 0 ) {
     log ioproc trace "0 files left after filtering. Script will now exit"
     log ioproc error "Could not find any appropriate files to sanitise in $File"
-    Clean-Up
 }
 
 # Declare which files we'd like to process
 $filesToProcess = $files
+
+write-host -ForegroundColor Magenta "--------------"
 
 $filesToProcess
 
