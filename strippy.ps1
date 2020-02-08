@@ -1,4 +1,4 @@
-﻿#Requires -Version 5
+#Requires -Version 5
 
 <#
 .SYNOPSIS
@@ -63,7 +63,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.1.5 - 191109
+    Version: 2.1.6 - 20200208
     Compatability: Powershell 5+
 
 .LINK
@@ -314,7 +314,7 @@ if ( $File -eq "" -and -not $makeConfig ) {
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    2.1.5                         ||"
+log init Trace "   ||    Version:    2.1.6                         ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $(show-path $file)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Key file:                         $(@('Unset',(show-path $KeyFile))[$KeyFile -ne ''])"
@@ -378,7 +378,7 @@ if ( $MakeConfig ) {
     $confloc = Join-Path $( Get-Location ) 'strippy.conf'
     log mkconf trace "We're going to make the config file here: $confloc"
     # Apologies if you're trying to read this next string. 
-    $defaultConfig = "; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings=""/0:0:0:0:0:0:0:0"", ""0.0.0.0"", ""127.0.0.1"", ""name"", ""applications"", """"`r`n`r`n; These settings can use braces to include dynamic formatting: `r`n; {0} = Date/Time at processing`r`n; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine=""This file was Sanitised at {0}.``r``n==``r``n``r``n""`r`nKeyListFirstLine=""This keylist was created at {0}.""`r`n;KeyFileName=""Keylist.txt""`r`n;AlternateOutputFolder="".\sanitisedoutput""`r`n`r`n[ Rules ]`r`n;""Some Regex String here""=""Replacement here""`r`n""((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]""=""Address""`r`n""\\\\([\w\-.]*?)\\""=""Hostname""`r`n"
+    $defaultConfig = "; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings=""/0:0:0:0:0:0:0:0"",""0.0.0.0"",""127.0.0.1"",""name"",""applications"","""",""unknown"",""null""`r`n`r`n; These settings can use braces to include dynamic formatting:`r`n; {0} = Date/Time at processing`r`n; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine=""This file was Sanitised at {0}.``r``n==``r``n``r``n""`r`nKeyListFirstLine=""This keylist was created at {0}.""`r`n;KeyFileName=""Keylist.txt""`r`n;AlternateOutputFolder="".\sanitisedoutput""`r`n`r`n[ Rules ]`r`n;""Some Regex String here""=""Replacement here""`r`n""((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]""=""Address""`r`n""\\\\([\w\-.]*?)\\""=""Hostname""`r`n"
     log mkconf trace "We're going to give it this content:`r`n$defaultConfig"
 
     # Check to make sure we're not overwriting someone's config file
@@ -594,7 +594,7 @@ function proc-config-file ( $cf ) {
                     # Array option
                 }
                 elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
-                    $config[$lineKey] = ($lineValue[1..($lineValue.length - 2)] -join '') -split "`",\s*`""
+                    $config[$lineKey] = ($lineValue[1..($lineValue.length - 2)] -join '') -split "`",\s*`"" -replace '\\"','"'
 
                     # String option
                 }
@@ -1548,3 +1548,4 @@ log timing message "Script completed in $_delta seconds"
 
 Clean-Up -NoExit
 log timing trace "[End] Wrap up"
+
