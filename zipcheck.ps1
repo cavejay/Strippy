@@ -21,6 +21,9 @@ param (
     [int] $LogHistory = 5
 )
 
+$zipFilesToIgnore = 'plugins.zip', 'remote_plugins.zip'
+
+
 $_startTime = get-date
 
 ## Setup Log functions
@@ -289,8 +292,12 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     log timing trace "[START] ZIP Unpacker (D$depth)"
 
-    # ensure $zipfiles are all .zip files
-    $zipfiles = $ZipFiles | ForEach-Object { get-item -path $_ } | Where-Object -Property Extension -in '.zip','.gz' | Select-Object -ExpandProperty fullname
+    # ensure $zipfiles are all .zip or .gz files & ensure none of the zip files are in the 'zipFilesToIgnore' list
+    $zipfiles = $zipFiles | ForEach-Object { get-item -path $_ } | 
+        Where-Object -Property Extension -in '.zip','.gz' | 
+        Where-Object -Property Name -notin $zipFilesToIgnore | 
+        Select-Object -ExpandProperty fullname
+    
     log unzipr trace "Looking to unpack $($zipfiles.Length) files: `"$($zipfiles -join '", "')`""
 
     $unpackedFolders = @()
@@ -399,7 +406,6 @@ remove-item -force -Recurse -Path $output_file
 # remove-item -force -Recurse "C:\users\michael.ball\Desktop\tmp\Dynatrace_Support_Archive_88229d42-c39e-4825-b180-44099bc5cbd4_(1)-zip"
 
 
-
 $files = @()
 
 # File is a .zip
@@ -414,7 +420,7 @@ if ((get-item $file).Extension -in '.zip', '.gz' ) {
 
     if ($script:Recurse) {
         # unpack the files
-        zip-unpacker (, $file) -Depth 5
+        zip-unpacker (, $file) -Depth 10
 
         $files = Get-ChildItem -Path $unpackedDir -Depth 10
     }
@@ -438,14 +444,14 @@ elseif (Test-Path -Path $file -PathType Container) {
     }
 }
 
-log main message "removing original .zip files"
-zip-cleaner -path $output_file
+# log main message "removing original .zip files"
+# zip-cleaner -path $output_file
 
 log ioproc debug "$($files.Length) Files left before filtering"
-# Filter out files that have been marked as sanitised or look suspiscious based on some nice functions that you need to write // TODO
+# Filter out files that have been marked as sanitised, are archives or look suspiscious based on some nice functions that you need to write // TODO
 log ioproc trace "Filter out files that aren't sanitisable"
 $files = Get-ChildItem -Recurse -Depth 20 -Path $output_file | Where-Object {
-    if (( $_.name -like '*.sanitised.*')) {
+    if (( $_.name -like '*.sanitised.*') -or ($_.Extension -in '.zip','.gz')) {
         log ioproc trace "$($_.FullName) will not be sanitised"
     }
     else {
