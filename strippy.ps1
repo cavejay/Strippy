@@ -146,6 +146,7 @@ param (
 $_startTime = get-date
 $recurseDepth = @(0, 20)[$script:Recurse -eq $true]
 $ignoredFileTypes = 'gif', 'jpeg', 'png', 'jpg', 'exe', 'tif', '7z' | ForEach-Object { ".$_" }
+$zipFilesToIgnore = 'plugins.zip', 'remote_plugins.zip'
 
 ## Setup Log functions
 function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:LogHistory) {
@@ -380,7 +381,7 @@ if ( $MakeConfig ) {
     $confloc = Join-Path $( Get-Location ) 'strippy.conf'
     log mkconf trace "We're going to make the config file here: $confloc"
     # Apologies if you're trying to read this next string. 
-    $defaultConfig = "; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings=""/0:0:0:0:0:0:0:0"",""0.0.0.0"",""127.0.0.1"",""name"",""applications"","""",""unknown"",""null""`r`n`r`n; These settings can use braces to include dynamic formatting:`r`n; {0} = Date/Time at processing`r`n; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine=""This file was Sanitised at {0}.``r``n==``r``n``r``n""`r`nKeyListFirstLine=""This keylist was created at {0}.""`r`n;KeyFileName=""Keylist.txt""`r`n;AlternateOutputFolder="".\sanitisedoutput""`r`n`r`n[ Rules ]`r`n;""Some Regex String here""=""Replacement here""`r`n""((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]""=""Address""`r`n""\\\\([\w\-.]*?)\\""=""Hostname""`r`n"
+    $defaultConfig = "; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings=""/0:0:0:0:0:0:0:0"",""0.0.0.0"",""127.0.0.1"",""name"",""applications"","""",""unknown"",""null"","".""`r`n`r`n; These settings can use braces to include dynamic formatting:`r`n; {0} = Date/Time at processing`r`n; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine=""This file was Sanitised at {0}.``r``n==``r``n``r``n""`r`nKeyListFirstLine=""This keylist was created at {0}.""`r`n;KeyFileName=""Keylist.txt""`r`n;AlternateOutputFolder="".\sanitisedoutput""`r`n`r`n[ Rules ]`r`n;""Some Regex String here""=""Replacement here""`r`n""((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]""=""Address""`r`n""\\\\([\w\-.]*?)\\""=""Hostname""`r`n"
     log mkconf trace "We're going to give it this content:`r`n$defaultConfig"
 
     # Check to make sure we're not overwriting someone's config file
@@ -440,7 +441,13 @@ function eval-config-string ([string] $str) {
 function Get-PathTail ([string] $d1, [string] $d2) {
     if ($d1 -eq $d2) { return split-Path -Leaf $d1 }
     #codemagicthing
-    [String]::Join('', $($d2[$($d1.length)..$($d2.length - 1)], $d1[$($d2.length)..$($d1.length - 1)])[$d1 -gt $d2])
+    [String]::Join('', $(if ($d1 -gt $d2) {
+                $d1[$($d2.length)..$($d1.length - 1)]        
+            }
+            else {
+                $d2[$($d1.length)..$($d2.length - 1)]        
+            }
+        ))
 }
 
 function output-keylist ($finalKeyList, $listOfSanitisedFiles, [switch]$quicksave) {
@@ -694,61 +701,6 @@ function proc-keyfile ( [string] $kf ) {
 
     $importedKeylist = @{ } # see function head for comment about this not super working
     return $importedKeylist
-}
-
-function Get-FileEncoding {
-    # This function is only included here to preserve this as a single file.
-    # Original Source: http://blog.vertigion.com/post/110022387292/powershell-get-fileencoding
-    [CmdletBinding()]
-    param (
-        [Alias("PSPath")]
-        [Parameter(Mandatory = $True, ValueFromPipelineByPropertyName = $True)]
-        [String]$Path,
-
-        [Parameter(Mandatory = $False)]
-        [System.Text.Encoding]$DefaultEncoding = [System.Text.Encoding]::ASCII
-    )
-    process {
-        [Byte[]]$bom = Get-Content -Encoding Byte -ReadCount 4 -TotalCount 4 -Path $Path
-        $encoding_found = $false
-        foreach ($encoding in [System.Text.Encoding]::GetEncodings().GetEncoding()) {
-            $preamble = $encoding.GetPreamble()
-            if ($preamble -and $bom) {
-                foreach ($i in 0..$preamble.Length) {
-                    if ($preamble[$i] -ne $bom[$i]) {
-                        break
-                    }
-                    elseif ($i -eq $preable.Length) {
-                        $encoding_found = $encoding
-                    }
-                }
-            }
-        }
-        if (!$encoding_found) {
-            $encoding_found = $DefaultEncoding
-        }
-        $encoding_found
-    }
-}
-
-function Get-MimeType() {
-    # This function is only included here to preserve this as a single file.
-    # From https://gallery.technet.microsoft.com/scriptcenter/PowerShell-Function-to-6429566c#content
-    param([parameter(Mandatory = $true, ValueFromPipeline = $true)][ValidateNotNullorEmpty()][System.IO.FileInfo]$CheckFile) 
-    begin { 
-        Add-Type -AssemblyName "System.Web"         
-        [System.IO.FileInfo]$check_file = $CheckFile 
-        [string]$mime_type = $null 
-    } 
-    process { 
-        if (test-path $check_file) {  
-            $mime_type = [System.Web.MimeMapping]::GetMimeMapping($check_file.FullName)  
-        }
-        else { 
-            $mime_type = "false" 
-        } 
-    } 
-    end { return $mime_type } 
 }
 
 # Group all the functions that we'll need to run in Jobs as a scriptblock
@@ -1407,6 +1359,8 @@ $OutputFolder = $File | Split-Path # Default output folder for a file is its par
 log ioproc trace "Default output folder is: $OutputFolder"
 
 function filter-filelist ($fileList) {
+    log timing trace "[Start] FilterFilelist"
+
     # Filter out files that have been marked as sanitised, are archives, are folders, match the extensions-to-ignore list
     #    or look suspiscious based on some nice functions that you need to write // TODO
     log ioproc trace "Filter out files that aren't sanitisable"
@@ -1436,6 +1390,7 @@ function filter-filelist ($fileList) {
     } | ForEach-Object { $_.FullName }
     log ioproc debug "$($files.Length) Files left after filtering: `"$($files -join ', ')`""
 
+    log timing trace "[End] FilterFilelist"
     return $files
 }
 
@@ -1443,10 +1398,10 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     log timing trace "[START] ZIP Unpacker (D$depth)"
 
     # ensure $zipfiles are all .zip or .gz files & ensure none of the zip files are in the 'zipFilesToIgnore' list
-    $zipfiles = $zipFiles | ForEach-Object { get-item -path $_ } | 
-    Where-Object -Property Extension -in '.zip', '.gz' | 
-    Where-Object -Property Name -notin $zipFilesToIgnore | 
-    Select-Object -ExpandProperty fullname
+    $zipfiles = $zipFiles | ForEach-Object { if($_) {get-item -path $_} } | 
+        Where-Object -Property Extension -in '.zip', '.gz' | 
+        Where-Object -Property Name -notin $zipFilesToIgnore | 
+        Select-Object -ExpandProperty fullname
     
     log unzipr trace "Looking to unpack $($zipfiles.Length) files: `"$($zipfiles -join '", "')`""
 
@@ -1454,7 +1409,7 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
 
     # unpack them all
     foreach ($archive in $zipfiles) {
-        $extractedTo = make-archiveFolder $archive
+        $extractedTo = make-archiveFolder $archive -force
         $unpackedFolders += $extractedTo.fullname
         Expand-Archive2 -Path $archive -DestinationPath $extractedTo.fullname
     }
@@ -1481,8 +1436,9 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     Extends ExpandArchive to include support for .gz files
 #>
 function Expand-Archive2 ([String]$Path, [String]$DestinationPath) {
-    $extension = (Get-item $path).Extension
+    log timing trace "[Start] ExpandArchive2"
 
+    $extension = (Get-item $path).Extension
     log exarc2 trace "Starting expansaion of archive file $path to $destinationpath. Type: $extension"
 
     switch ($extension) {
@@ -1511,10 +1467,11 @@ function Expand-Archive2 ([String]$Path, [String]$DestinationPath) {
             Expand-Archive -Path $path -DestinationPath $DestinationPath
         }
     }
+    log timing trace "[End] ExpandArchive2"
 }
 
 function make-archiveFolder ([Parameter(ValueFromPipeline = $true)]$archive, [switch]$force) {
-    log timing trace "[START] Generate Archive Folder name"
+    log timing trace "[Start] Generate Archive Folder name"
     [System.IO.FileSystemInfo]$file = [System.IO.FileSystemInfo] (get-item $archive)
     
     $unpackedDir = Join-Path -Path $file.DirectoryName -ChildPath "$($file.baseName)-$($file.extension -replace '\.','')"
@@ -1647,9 +1604,6 @@ else {
     }
 }
 
-$filesToProcess
-exit
-
 # Redirect the output folder if necessary
 if ($AlternateOutputFolder) {
     log ioproc trace "User has specified an alternate output folder: '$AlternateOutputFolder'. This will need to be made."
@@ -1678,7 +1632,7 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 log strppy message "`n==========================================================================`nProcessed Keys:"
-log strppy message "$($finalKeyList | sort -Property value | Out-String)"
+log strppy message "$($finalKeyList | Sort-Object -Property value | Out-String)"
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
@@ -1689,4 +1643,3 @@ log timing message "Script completed in $_delta seconds"
 
 Clean-Up -NoExit
 log timing trace "[End] Wrap up"
-
