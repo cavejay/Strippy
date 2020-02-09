@@ -1406,33 +1406,11 @@ $filesToProcess = @()
 $OutputFolder = $File | Split-Path # Default output folder for a file is its parent dir
 log ioproc trace "Default output folder is: $OutputFolder"
 
-# is it a directory?
-$isDir = Test-Path -LiteralPath $file -PathType Container
-if ( $isDir ) {
-    log ioproc trace "$File is a folder"
-
-    # Get all the files
-    if ($script:Recurse) {
-        log ioproc trace "Recursive mode means we get all the files to a depth of 20 folders"
-        $files = Get-ChildItem $File -Recurse -File -Depth $recurseDepth
-        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
-
-        # if we've been told to unpack .zips then find and expand those
-        if ($script:unpackZip) {
-            # pass to the zip-unpacker - it will filter to only supported archives
-            zip-unpacker (, $zipfiles) -Depth $recurseDepth
-        }
-    }
-    else {
-        $files = Get-ChildItem $File -File
-        log ioproc trace "Normal mode means we only get the files at the top directory - depth = 0"
-        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
-    }
-
+function filter-filelist ($fileList) {
     # Filter out files that have been marked as sanitised, are archives, are folders, match the extensions-to-ignore list
     #    or look suspiscious based on some nice functions that you need to write // TODO
     log ioproc trace "Filter out files that aren't sanitisable"
-    $files = Get-ChildItem -Recurse -Depth $recurseDepth -Path $file | Where-Object {
+    $files = Get-Item $filelist | Where-Object {
         $goodFileChecks = ($_.PSIsContainer), # also uninclude folders themselves here.
         ($_.Extension.ToLower() -in '.zip', '.gz'), # don't sanitise zip's they're binary files
         ($_.Extension.ToLower() -in $ignoredFileTypes), # use the global list to ignore pictures etc for now
@@ -1458,17 +1436,144 @@ if ( $isDir ) {
     } | ForEach-Object { $_.FullName }
     log ioproc debug "$($files.Length) Files left after filtering: `"$($files -join ', ')`""
 
+    return $files
+}
+
+function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
+    log timing trace "[START] ZIP Unpacker (D$depth)"
+
+    # ensure $zipfiles are all .zip or .gz files & ensure none of the zip files are in the 'zipFilesToIgnore' list
+    $zipfiles = $zipFiles | ForEach-Object { get-item -path $_ } | 
+    Where-Object -Property Extension -in '.zip', '.gz' | 
+    Where-Object -Property Name -notin $zipFilesToIgnore | 
+    Select-Object -ExpandProperty fullname
+    
+    log unzipr trace "Looking to unpack $($zipfiles.Length) files: `"$($zipfiles -join '", "')`""
+
+    $unpackedFolders = @()
+
+    # unpack them all
+    foreach ($archive in $zipfiles) {
+        $extractedTo = make-archiveFolder $archive
+        $unpackedFolders += $extractedTo.fullname
+        Expand-Archive2 -Path $archive -DestinationPath $extractedTo.fullname
+    }
+
+    log unzipr trace "Successfully unpacked archives to: `"$($unpackedFolders -join '", "')`""
+
+    # if depth is 1 we've gone as far as we should otherwise lets go deeper
+    if ($Depth -gt 1) {
+        # analyse their unpacked contents
+        $childrenZipFiles = Get-ChildItem $unpackedFolders -Recurse:$script:Recurse | Where-Object -Property Extension -in '.zip', '.gz' | Select-Object -ExpandProperty FullName
+
+        # if we need to go deeper, go again (recursively)
+        if ($childrenZipFiles.Length -gt 0) {
+            log unzipr trace "$($childrenZipFiles.length) additional log file(s) were found at depth '$depth'. Recursing deeper"
+            log unzipr debug "Files to unzip next iteration: $($childrenZipFiles -join ', ')"
+            zip-unpacker $childrenZipFiles -Depth ($depth - 1)
+        }
+    }
+
+    log timing trace "[End] ZIP Unpacker (D$depth)"
+}
+
+<#
+    Extends ExpandArchive to include support for .gz files
+#>
+function Expand-Archive2 ([String]$Path, [String]$DestinationPath) {
+    $extension = (Get-item $path).Extension
+
+    log exarc2 trace "Starting expansaion of archive file $path to $destinationpath. Type: $extension"
+
+    switch ($extension) {
+        '.gz' { 
+            $destinationpath = Join-Path $destinationpath (get-item $path).baseName
+
+            $in = New-Object System.IO.FileStream $Path, ([IO.FileMode]::Open), ([IO.FileAccess]::Read), ([IO.FileShare]::Read)
+            $output = New-Object System.IO.FileStream $DestinationPath, ([IO.FileMode]::Create), ([IO.FileAccess]::Write), ([IO.FileShare]::None)
+            $gzipStream = New-Object System.IO.Compression.GzipStream $in, ([IO.Compression.CompressionMode]::Decompress)
+        
+            $buffer = New-Object byte[](1024)
+            while ($true) {
+                $read = $gzipstream.Read($buffer, 0, 1024)
+                if ($read -le 0) { break }
+                $output.Write($buffer, 0, $read)
+            }
+        
+            $gzipStream.Close()
+            $output.Close()
+            $in.Close()
+        }
+        '.zip' {
+            Expand-Archive -Path $path -DestinationPath $DestinationPath
+        }
+        Default {
+            Expand-Archive -Path $path -DestinationPath $DestinationPath
+        }
+    }
+}
+
+function make-archiveFolder ([Parameter(ValueFromPipeline = $true)]$archive, [switch]$force) {
+    log timing trace "[START] Generate Archive Folder name"
+    [System.IO.FileSystemInfo]$file = [System.IO.FileSystemInfo] (get-item $archive)
+    
+    $unpackedDir = Join-Path -Path $file.DirectoryName -ChildPath "$($file.baseName)-$($file.extension -replace '\.','')"
+    $unpackedDir = $unpackedDir -replace ' ', '_'
+    
+    if (!(Test-Path -Path $unpackedDir -PathType Container)) {
+        log mkahdr message "Created previously non-existent dir '$unpackedDir' for contents of archive '$archive'"
+        New-Item -Path $unpackedDir -ItemType Directory -Force | Out-Null
+    }
+    elseif ($force) {
+        Remove-Item -Recurse -Force -Path $unpackedDir | Out-Null
+        New-Item -Path $unpackedDir -ItemType Directory -Force | Out-Null
+        log mkahdr message "make-archiveFolder overwrote previously existing '$unpackedDir' for contents of archive '$archive'"
+    }
+    else {
+        log mkahdr debug "make-archiveFolder did nothing - '$unpackedDir' already existed"
+    }
+
+    log timing trace "[End] Generate Archive Folder name"
+    return get-item $unpackedDir
+}
+
+# is it a directory?
+$isDir = Test-Path -LiteralPath $file -PathType Container
+if ( $isDir ) {
+    log ioproc trace "$File is a folder"
+
+    # Get all the files
+    if ($script:Recurse) {
+        log ioproc trace "Recursive mode means we get all the files to a depth of 20 folders"
+        $files = Get-ChildItem $File -Recurse -File -Depth $recurseDepth
+        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
+
+        # if we've been told to unpack .zips then find and expand those
+        if ($script:unpackZip) {
+            # pass to the zip-unpacker - it will filter to only supported archives
+            zip-unpacker (, $zipfiles) -Depth $recurseDepth
+        }
+
+        # After unpacking any archives update understanding of files available
+        $files = Get-ChildItem -path $File -Recurse -File -Depth $recurseDepth | Select-Object -ExpandProperty FullName
+    }
+    else {
+        $files = Get-ChildItem -path $File -File | Select-Object -ExpandProperty FullName
+        log ioproc trace "Normal mode means we only get the files at the top directory - depth = 0"
+        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
+    }
+    
+    # Declare which files we'd like to process
+    $filesToProcess = filter-filelist $files
+
     # If we didn't find any files clean up and exit
     log ioproc trace "Checking number of files after filtering"
-    if ( $files.Length -eq 0 ) {
+    if ( $filesToProcess.Length -eq 0 ) {
         log ioproc trace "0 files left after filtering. Script will now exit"
         log ioproc error "Could not find any appropriate files to sanitise in $File"
         Clean-Up
     }
-
-    # Declare which files we'd like to process
-    $filesToProcess = $files
-
+    
     # Calc the output folder
     $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
     if (!$AlternateOutputFolder) {
@@ -1488,24 +1593,58 @@ elseif ( $File -contains '*' ) {
 }
 # We also want to support archives by treating them as folders we just have to unpack first
 elseif ( $( get-item $File ).Extension -in '.zip', '.gz') {
+    $script:unpackZip = $true
     log ioprov trace "User has provided a .zip file. It will now be unpacked and processed"
-    # log ioproc trace "User attempted to sanitise a .zip file. This will hopefully be supported in the future. Just unpack it for now."
-    # log ioproc error "Archives are not yet supported"
-
-    # It's not a folder, so go for it
-    zip-unpacker (, (Get-Item $file))
-
-    # inspect the unarchived folder and pull out the files.
-
+     
+    # Unpack the top level zip 
+    $_file = $file # preserve original input
+    [System.IO.FileSystemInfo]$archiveFile = [System.IO.FileSystemInfo] (get-item $_file) # get pwsh version of original input
+    $file = make-archiveFolder $archiveFile -force
+ 
+    log main message "New input dir: $unpackedDir"
+ 
     if ($script:Recurse) {
-        
+        # unpack the files
+        zip-unpacker (, $archiveFile) -Depth $recurseDepth
+        $files = Get-ChildItem -Path $file -Depth $recurseDepth | Select-Object -ExpandProperty FullName
     }
+    else {
+        # only unpack the first layer
+        zip-unpacker (, $archiveFile) -Depth 1 -outputDir $file 
+        $files = Get-ChildItem -Path $file -Depth 1 | Select-Object -ExpandProperty FullName
+    }
+
+    # Declare which files we'd like to process
+    $filesToProcess = filter-filelist $files
+
+    # If we didn't find any files clean up and exit
+    log ioproc trace "Checking number of files after filtering"
+    if ( $filesToProcess.Length -eq 0 ) {
+        log ioproc trace "0 files left after filtering. Script will now exit"
+        log ioproc error "Could not find any appropriate files to sanitise in $File"
+        Clean-Up
+    }
+
+    # Calc the output folder
+    $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
+    if (!$AlternateOutputFolder) {
+        New-Item -ItemType directory -Path $f -Force | Out-Null
+        $OutputFolder = $(Get-Item "$f").FullName
+    } # Make the new dir
 }
 else {
     log ioproc trace "$File is a file. Adding only it to the list of files to process"
-    
-    # Add the file to process to the list
-    $filesToProcess += $(get-item $File).FullName
+
+    # Add the check the file is appropriate for sanitisation and add to the list of things to process
+    $filesToProcess += filter-filelist (get-item $File)
+
+    # If we didn't find any files clean up and exit
+    log ioproc trace "Checking number of files after filtering"
+    if ( $filesToProcess.Length -eq 0 ) {
+        log ioproc trace "0 files left after filtering. Script will now exit"
+        log ioproc error "'$File' was not a file appropriate for sanitising - reason found in logs"
+        Clean-Up
+    }
 }
 
 $filesToProcess
