@@ -144,6 +144,8 @@ param (
 )
 
 $_startTime = get-date
+$recurseDepth = @(0, 20)[$script:Recurse -eq $true]
+$ignoredFileTypes = 'gif', 'jpeg', 'png', 'jpg', 'exe', 'tif', '7z' | ForEach-Object { ".$_" }
 
 ## Setup Log functions
 function shuffle-logs ($MaxSize, $LogFile = $script:logfile, $MaxFiles = $script:LogHistory) {
@@ -197,9 +199,9 @@ Enum LEnum {
 #>
 function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String, [System.ConsoleColor] $Colour, [String] $Logfile = $script:logfile) {
     # Return instantly if this isn't output and we're not logging
-    if (!$script:log -and @([LEnum]::Message, [LEnum]::Question, [LEnum]::Warning, [LEnum]::Error) -notcontains $type) {return}
+    if (!$script:log -and @([LEnum]::Message, [LEnum]::Question, [LEnum]::Warning, [LEnum]::Error) -notcontains $type) { return }
     # Return instantly if this is a debug message and we're not showing debug
-    if (!$script:showDebug -and $type -eq [Lenum]::Debug) {return}
+    if (!$script:showDebug -and $type -eq [Lenum]::Debug) { return }
  
     shuffle-logs $script:MaxLogFileSize $Logfile
 
@@ -258,14 +260,14 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
     }
     else {    
         # assemble log message!
-        $stageSection = $(0..5 | % {$s = ''} {$s += @(' ', $Stage[$_])[[bool]$Stage[$_]]} {$s})
+        $stageSection = $(0..5 | % { $s = '' } { $s += @(' ', $Stage[$_])[[bool]$Stage[$_]] } { $s })
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   " + $String)
         try {
             # This try is to deal specifically when we've destroyed the mutex.
             if ($mtx.WaitOne()) {
                 # use Powershell native code. .NET functions don't offer enough improvement here.
-                $logMessage | Out-File -Filepath $Logfile -Append
+                $logMessage | Out-File -Filepath $Logfile -Append -Encoding utf8
                 [void]$mtx.ReleaseMutex()
             } 
             # consider doing something here like: 
@@ -273,7 +275,7 @@ function log ([String] $Stage, [LEnum] $Type = [LEnum]::Trace, [String] $String,
             # Sometimes the mutex might have been destroyed already (like when we're finishing up) so work with what we've got
         }
         catch [ObjectDisposedException] {
-            "$logMessage - NoMutex" | Out-File -FilePath $logFile -Append
+            "$logMessage - NoMutex" | Out-File -FilePath $logFile -Append -Encoding utf8
         }
     }
 }
@@ -341,8 +343,8 @@ log params Trace "Number of Log files kept:         $LogHistory"
 
 ## Variables: (Over written by any config file and include all the command line variables)
 # Priority of inputs: Default -> Configfile -> cmdline input
-$Config = @{}
-$Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0', '0.0.0.0', '127.0.0.1', 'name', 'applications', "")
+$Config = @{ }
+$Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0', '0.0.0.0', '127.0.0.1', 'name', 'applications', "", "unknown", "null", ".")
 $Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
 $Config.KeyListFirstline = "This keylist was created at {0}."
 $Config.KeyFileName = "KeyList.txt"
@@ -436,7 +438,7 @@ function eval-config-string ([string] $str) {
 
 # This is also a dupe of the function in the JobFunctions Scriptblock :( I can't figure out how to join the 2
 function Get-PathTail ([string] $d1, [string] $d2) {
-    if ($d1 -eq $d2) {return split-Path -Leaf $d1}
+    if ($d1 -eq $d2) { return split-Path -Leaf $d1 }
     #codemagicthing
     [String]::Join('', $($d2[$($d1.length)..$($d2.length - 1)], $d1[$($d2.length)..$($d1.length - 1)])[$d1 -gt $d2])
 }
@@ -453,7 +455,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles, [switch]$quicksav
             $kf = $( Get-Item "$AlternateKeyListOutput" ).FullName
         }
         
-        if (!$quicksave) {log outkey message "`r`nExporting KeyList to $kf"}
+        if (!$quicksave) { log outkey message "`r`nExporting KeyList to $kf" }
         $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | sort -Property name | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf -Force
@@ -470,7 +472,7 @@ function Clean-Up {
 
     log timing trace "[START] Script Cleanup"
     # output-keylist # This should no longer be needed.
-    if ($NoExit) {log clnup debug "Cleanup function run with -NoExit arg. Will not exit after running"}
+    if ($NoExit) { log clnup debug "Cleanup function run with -NoExit arg. Will not exit after running" }
 
     ## Cleanup
     log clnup Debug "Returning preferences to original state"
@@ -497,7 +499,7 @@ function proc-config-file ( $cf ) {
     $validLineKey = @('IgnoredStrings', 'SanitisedFileFirstLine', 'KeyListFirstLine', 'KeyFilename', 'AlternateKeyListOutput', 'AlternateOutputFolder')
     $stage = 0; $lineNum = 0
 
-    $config = @{flags = @()}
+    $config = @{flags = @() }
 
     $lines = $cf -split "`r?`n"
     ForEach ( $line in $lines ) {
@@ -516,7 +518,7 @@ function proc-config-file ( $cf ) {
         if ( $line -match "^\s*\[ [\w\s]* \].*$" ) {
             # is it a valid header structure?
             $matches = [regex]::Matches($line, "^\s*\[ ([\w\s]*) \].*$")
-            if ($matches.groups -and $matches.groups.length -gt 1) {} else {
+            if ($matches.groups -and $matches.groups.length -gt 1) { } else {
                 log prccnf trace "We found the '[]' for a header but something went wrong"
                 log prccnf error "CONFIG: Error with Header on line $lineNum`: $line"
                 exit -1
@@ -578,9 +580,9 @@ function proc-config-file ( $cf ) {
                             log prccnf warning "Maxthreads value was not a valid number. Contining with default value: $script:MaxThreads"
                         }
                     }
-                    'Silent' {$Config.Silent = $lineValue -eq "true"}
-                    'Recurse' {$Config.Recurse = $lineValue -eq "true"}
-                    'InPlace' {$Config.InPlace = $lineValue -eq "true"}
+                    'Silent' { $Config.Silent = $lineValue -eq "true" }
+                    'Recurse' { $Config.Recurse = $lineValue -eq "true" }
+                    'InPlace' { $Config.InPlace = $lineValue -eq "true" }
                     Default {
                         log prccnf warning "Unknown configuration setting '$lineKey' found on line $linenum`: $line"
                     }
@@ -594,7 +596,7 @@ function proc-config-file ( $cf ) {
                     # Array option
                 }
                 elseif ( $line -match "^.*=(.*)(,.*)*$" ) {
-                    $config[$lineKey] = ($lineValue[1..($lineValue.length - 2)] -join '') -split "`",\s*`"" -replace '\\"','"'
+                    $config[$lineKey] = ($lineValue[1..($lineValue.length - 2)] -join '') -split "`",\s*`"" -replace '\\"', '"'
 
                     # String option
                 }
@@ -650,7 +652,7 @@ function proc-keyfile ( [string] $kf ) {
     log timing trace "[START] Processing KeyFile"
 
     log prckyf warning "Sanitising files based on a pre-made keyfile is not currently supported. Many apologies if this affects a workflow"
-    $importedKeylist = @{}
+    $importedKeylist = @{ }
     $kfLines = [IO.file]::ReadAllLines($kf)
 
     # Find length of keylist
@@ -690,7 +692,7 @@ function proc-keyfile ( [string] $kf ) {
 
     log timing trace "[END] Processing KeyFile"
 
-    $importedKeylist = @{} # see function head for comment about this not super working
+    $importedKeylist = @{ } # see function head for comment about this not super working
     return $importedKeylist
 }
 
@@ -807,9 +809,9 @@ $JobFunctions = {
         )
 
         # Return instantly if we're not logging
-        if (!$script:log) {return}
+        if (!$script:log) { return }
         # Return instantly if this is a debug message and we're not showing debug
-        if ($type -eq [LenumJ]::Debug -and !$script:showDebug) {return}
+        if ($type -eq [LenumJ]::Debug -and !$script:showDebug) { return }
 
         shuffle-logs $script:MaxLogFileSize $Logfile
 
@@ -837,11 +839,11 @@ $JobFunctions = {
             }
         }
 
-        $stageSection = $(0..5 | % {$s = ''} {$s += @(' ', $Stage[$_])[[bool]$Stage[$_]]} {$s})
+        $stageSection = $(0..5 | % { $s = '' } { $s += @(' ', $Stage[$_])[[bool]$Stage[$_]] } { $s })
         $timestamp = Get-Date -format "yy-MM-dd HH:mm:ss.fff"
         $logMessage = ($1 + " " + $stageSection.toUpper() + " " + $timestamp + "   [JOB_$($script:JobId)]  " + $String)
         if ($mtx.WaitOne()) {
-            $logMessage | Out-File -Filepath $logfile -Append
+            $logMessage | Out-File -Filepath $logfile -Append -Encoding utf8
             [void]$mtx.ReleaseMutex()
         } 
         # consider doing something here like: 
@@ -880,7 +882,7 @@ $JobFunctions = {
     }
 
     function Get-PathTail ([string] $d1, [string] $d2) {
-        if ($d1 -eq $d2) {return split-Path -Leaf $d1}
+        if ($d1 -eq $d2) { return split-Path -Leaf $d1 }
         #codemagicthing
         [String]::Join('', $($d2[$($d1.length)..$($d2.length - 1)], $d1[$($d2.length)..$($d1.length - 1)])[$d1 -gt $d2])
     }
@@ -1128,8 +1130,8 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
     }
     Write-Progress -Activity "Gathering Keys" -PercentComplete 100 -ParentId $_tp -Completed
 
-    $output = @{}
-    $nameCounts = @{}
+    $output = @{ }
+    $nameCounts = @{ }
     $keyIndex = 0
     foreach ($key in $keys.Keys) {
         $possiblename = ''; $count = 0
@@ -1276,14 +1278,6 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     return $finalKeyList, $sanitisedFilenames
 }
 
-function zip-unpacker ($ZipFiles) {
-
-}
-
-function zip-cleaner () {
-
-}
-
 log timing trace "[End] Loading function definitions"
 
 ####################################################################################################
@@ -1419,40 +1413,49 @@ if ( $isDir ) {
 
     # Get all the files
     if ($script:Recurse) {
-        log ioproc trace "Recursive mode means we get all the files to a depth of 10 folders"
-        $files = Get-ChildItem $File -Recurse -File -Depth 10
+        log ioproc trace "Recursive mode means we get all the files to a depth of 20 folders"
+        $files = Get-ChildItem $File -Recurse -File -Depth $recurseDepth
         log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
 
         # if we've been told to unpack .zips then find and expand those
         if ($script:unpackZip) {
-            $zipfiles = ($files | Where-Object -Property Extension -EQ '.zip')
-            log ioproc trace "Found $((,$zipfiles).length) zip files: $($zipfiles -join ', ')"
-
-            # pass to the zip-unpacker
-            zip-unpacker (,$zipfiles) -Depth 5
-
-            # generate a new list that should no longer contain unpackable zip archives
-            $files = Get-ChildItem $file -Recurse -File -Depth 10
+            # pass to the zip-unpacker - it will filter to only supported archives
+            zip-unpacker (, $zipfiles) -Depth $recurseDepth
         }
     }
     else {
-        log ioproc trace "Normal mode means we only get the files at the top directory"
-        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
         $files = Get-ChildItem $File -File
+        log ioproc trace "Normal mode means we only get the files at the top directory - depth = 0"
+        log ioproc debug "$($files.Length) Files Found: `"$($files -join ', ')`""
     }
 
-    # Filter out files that have been marked as sanitised or look suspiscious based on the get-filencoding or get-mimetype functions
+    # Filter out files that have been marked as sanitised, are archives, are folders, match the extensions-to-ignore list
+    #    or look suspiscious based on some nice functions that you need to write // TODO
     log ioproc trace "Filter out files that aren't sanitisable"
-    $files = $files | Where-Object {
-        $val = ( @('us-ascii', 'utf-8') -contains ( Get-FileEncoding $_.FullName ).BodyName ) -and -not
-        ( $(Get-MimeType -CheckFile $_.FullName) -match "image") -and -not
-        ( $_.name -like '*.sanitised.*')
+    $files = Get-ChildItem -Recurse -Depth $recurseDepth -Path $file | Where-Object {
+        $goodFileChecks = ($_.PSIsContainer), # also uninclude folders themselves here.
+        ($_.Extension.ToLower() -in '.zip', '.gz'), # don't sanitise zip's they're binary files
+        ($_.Extension.ToLower() -in $ignoredFileTypes), # use the global list to ignore pictures etc for now
+        ( $_.name -like '*.sanitised.*') # don't re-sanitise
 
-        if (!$val) {
-            log ioproc trace "$($_.FullName) will not be sanitised"
+        # return early for most files (by checking if they failed any, and returning their file)
+        # a good file would be all falses, or no trues
+        if (($goodFileChecks -eq $True).Length -eq 0) {
+            return $_
         }
-        $val
-    } | ForEach-Object {$_.FullName}
+        elseif ($goodFileChecks[0]) { 
+            log ioproc trace "$($_.FullName) will not be sanitised - is folder"
+        }
+        elseif ($goodFileChecks[1]) {
+            log ioproc trace "$($_.FullName) will not be sanitised - is zip/gz archive"
+        }
+        elseif ($goodFileChecks[2]) {
+            log ioproc trace "$($_.FullName) will not be sanitised - is one of the ignored filetypes"
+        }
+        elseif ($goodFileChecks[3]) {
+            log ioproc trace "$($_.FullName) will not be sanitised - already sanitised file"
+        }
+    } | ForEach-Object { $_.FullName }
     log ioproc debug "$($files.Length) Files left after filtering: `"$($files -join ', ')`""
 
     # If we didn't find any files clean up and exit
@@ -1468,11 +1471,10 @@ if ( $isDir ) {
 
     # Calc the output folder
     $f = join-path $(Get-Item $File).Parent.FullName "$($(Get-Item $File).Name).sanitised"
-    if ($AlternateOutputFolder) {} else {
+    if (!$AlternateOutputFolder) {
         New-Item -ItemType directory -Path $f -Force | Out-Null
         $OutputFolder = $(Get-Item "$f").FullName
     } # Make the new dir
-
 }
 # Support Paths with wildcards at somepoint
 elseif ( $File -contains '*' ) {
@@ -1483,16 +1485,15 @@ elseif ( $File -contains '*' ) {
     log ioproc trace "User attempted to use a wild-card path rather than a literal one. This is currently unsupported."
     log ioproc error "Paths with wildcards are not yet supported"
     Clean-Up
-
 }
 # We also want to support archives by treating them as folders we just have to unpack first
-elseif ( $( get-item $File ).Extension -eq '.zip') {
+elseif ( $( get-item $File ).Extension -in '.zip', '.gz') {
     log ioprov trace "User has provided a .zip file. It will now be unpacked and processed"
     # log ioproc trace "User attempted to sanitise a .zip file. This will hopefully be supported in the future. Just unpack it for now."
     # log ioproc error "Archives are not yet supported"
 
     # It's not a folder, so go for it
-    zip-unpacker (,(Get-Item $file))
+    zip-unpacker (, (Get-Item $file))
 
     # inspect the unarchived folder and pull out the files.
 
@@ -1507,6 +1508,7 @@ else {
     $filesToProcess += $(get-item $File).FullName
 }
 
+$filesToProcess
 exit
 
 # Redirect the output folder if necessary
