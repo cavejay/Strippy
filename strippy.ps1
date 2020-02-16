@@ -2,16 +2,28 @@
 
 <#
 .SYNOPSIS
-    Tool for sanitising utf8 encoded files based on configured "indicators"
+    Tool for bulk sanitising text-based files
 
 .DESCRIPTION
-    Use this tool to automate the replacement of sensitive data in text files with generic strings.
-    While intended for use with log files this tool should work with all text files.
+    Use this tool to automate the replacement of sensitive data with generic strings in text-based files.
 
-    In order to use this tool effectively you will need to be proficient with regex. 
-    Regex is used to filter out sensitive pieces of data from log files and replace it with a place holder.
+    This tool requires configuration to describe where sensitive data will be present, or explicit examples of known sensitive data. Sensitive data is 'described' to Strippy using Regular Expressions (regex) that match log patterns known to hold contain. These regex rules are run across all input files, the matching strings brought together, labelled and then replaced with their new generic label across all input files. This method allows for 'known unknown' capture of sensitive data and replacement of data in 'unknown known' but known scenario.
 
-    All rules (apart from basic unc and ip rules) must be added to a configuration file (named strippy.conf by default).
+    Step by Step usage process: 
+        1) Determine file(s) that require sanitisation
+        2) Group the input files together - same folder will do
+        3a) If IP Addresses are the only sensitive data no configuration strippy.conf file is required. Skip to Step 5
+        3b) If the expected location of sensitive data is known then creation of a new .conf file is required. This can be done quickly with the -makeconfig flag
+        3c) If all sensitive data is known (eg. specific server names) then this should also be placed in a .conf file, but as a specifically matched string. Creating a basic .conf file can be done with the -makeconfig flag.
+        4) Populate the strippy.conf file with rules describing where sensitive data will be found in logs
+        5) Execute strippy.ps1 with the -file argument pointing to the target file/folder/zip
+                Strippy will look for a strippy.conf file to use in:  
+                    a. The file pointed to by -configfile
+                    b. The same folder as the target file/folder // NOT IMPLEMENTED
+                    c. It's own storage directory
+        6) Strippy will perform the sanitisation and save the output to <input>.sanitised or -AlternateOutputFolder
+        7) Keylist.txt is created in the same folder as the target file/folder. This file contains all sanitised sensitive data with the generic string replacement. This is for consultation should a reader of the sanitised file discuss 'Address53'
+    
     Sanitisation rules added to the .conf file should look like this: 
         "<regex>"="<alias>" where:
             <regex> is a (not escaped) regex query and;
@@ -19,11 +31,9 @@
         
         A complete example is:  "hostname=(.*?),"="Hostname"
         This example would transform 'hostname=SecretHostname,' into 'hostname=Hostname1,'
-    
-    Make use of the tool by reading the examples from: get-help .\strippy.ps1 -examples
+        Strippy configuration files for specific tools live in the configFiles directory: https://github.com/cavejay/Strippy/tree/master/configFiles
 
-    To start creating your own 'sensitive data indicators' you will need to create a .conf file that follows the ini style of formatting. An example config file can be generated using the -MakeConfig flag.
-    Where a config file is not explicitly provided via the -configFile arg Strippy will check both the localdirectory of the script for a 'strippy.conf'
+    Make use of the tool by reading the examples from: get-help .\strippy.ps1 -examples
     
     If you haven't already then you'll need to change your execution policy to run this tool. 
     You can do this temporarily by using the following:
@@ -52,11 +62,11 @@
 .EXAMPLE
     C:\PS> .\strippy.ps1 .\logs -Recurse
 
-    If you need to sanitise an entire file tree, then use the -Recurse flag to iterate through each file in a folder and it's subfolders.
+    If you need to sanitise an entire file tree, use the -Recurse flag to iterate through each file in a folder and it's subfolders. Strippy's maximum depth at v2.2.0 is capped at 20 directories.
     This will output sanitised files to .\logs.sanitised
 
 .EXAMPLE
-    C:\PS> .\strippy.ps1 "C:\Program Files\Dynatrace\CAS\Server\logs" -Recurse -Silent -alternateOutputFolder "C:\sanitised-$(get-date -UFormat %s)"
+    C:\PS> D:\strippy\strippy.ps1 "C:\Program Files\Dynatrace\CAS\Server\logs" -configFile 'D:\strippy\batchjob.strippy.conf' -Recurse -Silent -alternateOutputFolder "C:\sanitised-$(get-date -UFormat %s)"
 
     This example shows how you might integrate strippy in an automation scheme. The -Silent flag stops output to stdout, preventing the need for a stdout redirect. 
     The -alternateOutputFolder flag allows redirection of the sanitised files to a custom folder.
@@ -77,7 +87,6 @@
 # Switch to add strippy to your ps profile for quick running
 # Have option for diagnotics file or similar that shows how many times each rule was hit
 # Publish to dxs wiki
-# Support .zips as well.
 # Have a blacklist of regexs.
 # More intelligent capitalisation resolution.
 # Move from jobs to runspaces?
