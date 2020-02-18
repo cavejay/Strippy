@@ -472,7 +472,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles, [switch]$quicksav
         }
         
         if (!$quicksave) { log outkey message "`r`nExporting KeyList to $kf" }
-        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | sort -Property name | Out-String )
+        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | Sort-Object -Property name | Out-String )
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf -Force
     }
@@ -1096,6 +1096,10 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
     $output = @{ }
     $nameCounts = @{ }
     $keyIndex = 0
+    $totalKeyCounts = $keys.Values | Group-Object | ForEach-Object {
+        $_ | Add-member -PassThru -Type NoteProperty -Name 'digits' -Value $(([string]$_.Count).Length)
+    }
+
     foreach ($key in $keys.Keys) {
         $possiblename = ''; $count = 0
         # log gnkynm debug $token.Item2
@@ -1105,8 +1109,9 @@ function Merging-Stripper ([Array] $keylists, [int] $PCompleteStart, [int] $PCom
             $nameCounts[$keys.$key] = 0
         }
         
-        $nameCounts[$keys.$key]++ # increment our count for this key 
-        $newname = "$( $keys.$key )$( $nameCounts[$keys.$key] )"
+        $_numberOfDigits = $totalKeyCounts | Where-Object -Property name -EQ $keys.$key | Select-Object -ExpandProperty digits
+        $nameCounts[$keys.$key]++ # increment our count for this key
+        $newname = "{0}{1:d$_numberOfDigits}" -f $keys.$key, $nameCounts[$keys.$key]
         
         $output.$newname = $key
 
@@ -1216,8 +1221,6 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
     log hdStrp message "Finshed collecting sensitive data from file(s)"
     log hdStrp trace "finished finding keys"
-
-    log tmp message ($keylists | out-string) -colour magenta
     
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
     # Add potentially imported keys to the list of keys
@@ -1285,10 +1288,10 @@ function zip-unpacker ([String[]]$ZipFiles, $Depth = 1) {
     log timing trace "[START] ZIP Unpacker (D$depth)"
 
     # ensure $zipfiles are all .zip or .gz files & ensure none of the zip files are in the 'zipFilesToIgnore' list
-    $zipfiles = $zipFiles | ForEach-Object { if($_) {get-item -path $_} } | 
-        Where-Object -Property Extension -in '.zip', '.gz' | 
-        Where-Object -Property Name -notin $zipFilesToIgnore | 
-        Select-Object -ExpandProperty fullname
+    $zipfiles = $zipFiles | ForEach-Object { if ($_) { get-item -path $_ } } | 
+    Where-Object -Property Extension -in '.zip', '.gz' | 
+    Where-Object -Property Name -notin $zipFilesToIgnore | 
+    Select-Object -ExpandProperty fullname
     
     log unzipr trace "Looking to unpack $($zipfiles.Length) files: `"$($zipfiles -join '", "')`""
 
@@ -1647,7 +1650,7 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 log strppy message "`n==========================================================================`nProcessed Keys:"
-log strppy message "$($finalKeyList | Sort-Object -Property value | Out-String)"
+log strppy message "$($finalKeyList.GetEnumerator() | Sort-Object -Property name | Out-String)"
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
