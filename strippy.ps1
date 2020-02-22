@@ -355,8 +355,8 @@ log params Trace "Number of Log files kept:         $LogHistory"
 # Priority of inputs: Default -> Configfile -> cmdline input
 $Config = @{ }
 $Config.IgnoredStrings = @('/0:0:0:0:0:0:0:0', '0.0.0.0', '127.0.0.1', 'name', 'applications', "", "unknown", "null", ".")
-$Config.SanitisedFileFirstline = "This file was Sanitised at {0}.`r`n==`r`n`r`n"
-$Config.KeyListFirstline = "This keylist was created at {0}."
+$Config.SanitisedFileFirstline = "This file was Sanitised at {0}.{1}=={1}{1}"
+$Config.KeyListFirstline = "This keylist was created at {0}.{1}"
 $Config.KeyFileName = "KeyList.txt"
 log params debug "Default Ignored Strings:          `"$($Config.IgnoredStrings -join '", "')`""
 log params debug "Default Sanitised file header:    $($Config.SanitisedFileFirstLine)"
@@ -390,7 +390,7 @@ if ( $MakeConfig ) {
     $confloc = Join-Path $( Get-Location ) 'strippy.conf'
     log mkconf trace "We're going to make the config file here: $confloc"
     # Apologies if you're trying to read this next string. 
-    $defaultConfig = "; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings=""/0:0:0:0:0:0:0:0"",""0.0.0.0"",""127.0.0.1"",""name"",""applications"","""",""unknown"",""null"","".""`r`n`r`n; These settings can use braces to include dynamic formatting:`r`n; {0} = Date/Time at processing`r`n; #notimplemented {1} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine=""This file was Sanitised at {0}.``r``n==``r``n``r``n""`r`nKeyListFirstLine=""This keylist was created at {0}.""`r`n;KeyFileName=""Keylist.txt""`r`n;AlternateOutputFolder="".\sanitisedoutput""`r`n`r`n[ Rules ]`r`n;""Some Regex String here""=""Replacement here""`r`n""((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]""=""Address""`r`n""\\\\([\w\-.]*?)\\""=""Hostname""`r`n"
+    $defaultConfig = "; Strippy Config file`r`n;Recurse=true`r`n;InPlace=false`r`n;Silent=false`r`n;MaxThreads=5`r`n`r`n[ Config ]`r`nIgnoredStrings=""/0:0:0:0:0:0:0:0"",""0.0.0.0"",""127.0.0.1"",""name"",""applications"","""",""unknown"",""null"","".""`r`n`r`n; These settings can use braces to include dynamic formatting:`r`n; {0} = Date/Time at processing`r`n; {1} = NewLine`r`n; #notimplemented {2} = Depends on context. Name of specific file being processed where relevant otherwise it`s the name of the Folder/File provided to Strippy `r`nSanitisedFileFirstLine=""This file was Sanitised at {0}.``r``n==``r``n``r``n""`r`nKeyListFirstLine=""This keylist was created at {0}.""`r`n;KeyFileName=""Keylist.txt""`r`n;AlternateOutputFolder="".\sanitisedoutput""`r`n`r`n[ Rules ]`r`n;""Some Regex String here""=""Replacement here""`r`n""((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]""=""Address""`r`n""\\\\([\w\-.]*?)\\""=""Hostname""`r`n"
     log mkconf trace "We're going to give it this content:`r`n$defaultConfig"
 
     # Check to make sure we're not overwriting someone's config file
@@ -433,7 +433,7 @@ function eval-config-string ([string] $str) {
     }
 
     # Lets make an array filled with the possible substitions. This is what will need to be updated for future versions
-    $arrayOfFills = @($(get-date).ToString())
+    $arrayOfFills = @($(get-date).ToString(),"`r`n")
 
     $matches = [regex]::Matches($str, "\{\d\}")
     $out = $str
@@ -829,7 +829,7 @@ $JobFunctions = {
         }
     
         # Lets make an array filled with the possible substitions. This is what will need to be updated for future versions
-        $arrayOfFills = @($(get-date).ToString())
+        $arrayOfFills = @($(get-date).ToString(),"`r`n")
     
         $matches = [regex]::Matches($str, "\{\d\}")
         $out = $str
