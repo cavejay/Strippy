@@ -1,0 +1,15 @@
+# lists of things
+1239182039 [DEBUG] listOfFruits: apple,pear,orange,pineapple,kiwi
+secondlistofBuildings:"house;apartment;outhouse;shoppingcenter;shop;school;cafe"
+
+# Separate things
+## Buildings: 
+    outhouse
+    house
+    shop
+    apartment
+
+## fruits
+    apple
+    kiwi
+    orange
