@@ -944,7 +944,7 @@ $JobFunctions = {
             $pattern = $token.regex
             $kind = $token.replacement
             log fndkys trace "Using '$pattern' to find matches"
-            $matches = [regex]::matches($f, $pattern) #, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+            $matches = [regex]::matches($f, $pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
             log fndkys trace "Finished using '$pattern' to find matches"
 
             # If we're looking for a list, split the list into it's elements and continue logic with those individual parts
@@ -961,6 +961,9 @@ $JobFunctions = {
             foreach ( $mval in $matches ) {
                 # $mval = $m.groups[1].value
                 log fndkys debug "Matched: $mval"
+
+                # remove any weird extra new-lines
+                $mval = $mval -replace "[`r|`n]",""
     
                 # Do we have a key already?
                 if ( $Keys.containsKey( $mval ) ) {
@@ -1242,7 +1245,7 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     # Use Scout stripper to start looking for the keys in each file
     log hdStrp message "Searching through input file(s) for sensitive data"
     $keylists = Scout-Stripper $files $script:Config.flags $rootFolder $script:Config.killerflag 1 35
-    log hdStrp message "Finshed collecting sensitive data from file(s)"
+    log hdStrp message "Finished collecting sensitive data from file(s)"
     log hdStrp trace "finished finding keys"
     
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Merging Keylists" -PercentComplete 35
