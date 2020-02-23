@@ -375,12 +375,16 @@ $_env = $script:log, $script:showDebug, $(resolve-path $script:logfile -ErrorAct
 log params debug "Created `$_env variable to pass logging environment to jobs (log, showDebug, logfile, maxLogFileSize): $($_env -join ', ')"
 
 # Flags
+# Valid Types are basic,delete and list
+# @{type=basic; regex=String; replacement=String}
+# @{type=list; regex=String; replacement=String; delimiter=String}
+# @{type=delete; regex=String}
 $Config.flags = New-Object System.Collections.ArrayList
 # Added to every list of flags to cover IPs and UNC's
 $defaultFlags = New-Object System.Collections.ArrayList
 $defaultFlags.AddRange(@(
-        [System.Tuple]::Create("((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]", 'Address'),
-        [System.Tuple]::Create("\\\\([\w\-.]*?)\\", "Hostname")
+        @{type = "basic"; regex = "((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))[^\d]"; replacement = 'Address' },
+        @{type = "basic"; regex = "\\\\([\w\-.]*?)\\"; replacement = "Hostname" }
     ))
 log params debug "Default flags/rules:              $defaultFlags"
 
@@ -634,7 +638,7 @@ function proc-config-file ( $cf ) {
                     $lineKeyDelimiter = $matches.groups[3].value
 
                     # Add the rule to the flags array
-                    $config.flags += [System.Tuple]::Create($lineKey, $lineValue)
+                    $config.flags += @{type = "list"; regex = $lineKey; replacement = $lineValue; delimiter = $lineKeyDelimiter }
 
                 } # Normal Rules
                 elseif ( $line -match '^".*"=".*"$' ) {
@@ -644,16 +648,12 @@ function proc-config-file ( $cf ) {
                     $lineValue = $matches.groups[2].value
 
                     # Add the rule to the flags array
-                    $config.flags += [System.Tuple]::Create($lineKey, $lineValue)
+                    $config.flags += @{type = "basic"; regex = $lineKey; replacement = $lineValue }
                 } # 'delete' rules - 
                 elseif ($line -match '^".*"=\\delete\s*$') {
                     $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
-                    if ($config.killerflag) {
-                        $config.killerflag += "|$flagtoremoveentirely"
-                    }
-                    else {
-                        $config.killerflag = "$flagtoremoveentirely"
-                    }
+
+                    $config.flags += @{type = "delete"; regex = $flagtoremoveentirely }
                 }
                 else {
                     log prccnf warning "Invalid Rule found on line $linenum. It doesn't appear to be wrapped with '`"' and will not be processed.
@@ -921,16 +921,17 @@ $JobFunctions = {
     }
     
     ## Build the key table for all the files
-    function Find-Keys ( [string] $fp, $flags, [System.Collections.Generic.HashSet[String]]$IgnoredStringsSet, [String] $killerFlags ) {
+    function Find-Keys ( [string] $fp, $flags, [System.Collections.Generic.HashSet[String]]$IgnoredStringsSet) {
         log timing trace "[START] Finding Keys from $fp"
 
         # dictionary to populate with <key><kind> values
         $Keys = New-Object 'System.Collections.Generic.Dictionary[String,String]'
 
         # Remove entire lines that we don't want.
-        if ($killerFlags) {
-            log fndkys trace "Filtering out lines that match $killerFlags"
-            $f = [IO.file]::ReadAllLines( $fp ) -notmatch $killerFlags -join "`r`n"
+        if ($flags | Where-Object -Property type -EQ -Value delete) {
+            $totalRemovalFlags = ($flags | Where-Object -Property type -EQ -Value delete).regex -join '|'
+            log fndkys trace "Filtering out lines that match ($totalRemovalFlags)"
+            $f = [IO.file]::ReadAllLines( $fp ) -notmatch $totalRemovalFlags -join "`r`n"
         }
         else {
             $f = [IO.file]::ReadAllLines( $fp ) -join "`r`n"
@@ -938,17 +939,27 @@ $JobFunctions = {
 
         # Process file for tokens
         $count = 1
-        foreach ( $token in $flags ) {
-            Write-Progress -Activity "Scouting $fp" -Status "$($token.Item1)" -Completed -PercentComplete (($count++ / $flags.count) * 100)
-            $pattern = $token.Item1
-            $kind = $token.Item2
+        foreach ( $token in ($flags | Where-Object -Property type -ne -Value delete) ) {
+            Write-Progress -Activity "Scouting $fp" -Status "$($token.regex)" -Completed -PercentComplete (($count++ / $flags.count) * 100)
+            $pattern = $token.regex
+            $kind = $token.replacement
             log fndkys trace "Using '$pattern' to find matches"
             $matches = [regex]::matches($f, $pattern) #, [System.Text.RegularExpressions.RegexOptions]::Multiline)
             log fndkys trace "Finished using '$pattern' to find matches"
 
+            # If we're looking for a list, split the list into it's elements and continue logic with those individual parts
+            if ($token.type -eq "list") {
+                $_matches = $matches # preserve original list of matches
+                $matches = $_matches | ForEach-Object {
+                    $_.groups[1].value -split $token.delimiter
+                }
+            } else {
+                $matches = $matches.groups[1].value
+            }
+
             # Grab the value for each match, if it doesn't have a key make one
-            foreach ( $m in $matches ) {
-                $mval = $m.groups[1].value
+            foreach ( $mval in $matches ) {
+                # $mval = $m.groups[1].value
                 log fndkys debug "Matched: $mval"
     
                 # Do we have a key already?
@@ -976,21 +987,21 @@ $JobFunctions = {
 }
 
 # Takes a list of files, some context and a list of regex rules and returns all the matches to those regex rules
-function Scout-Stripper ($files, $flags, [string] $rootFolder, [String] $killerFlags, [int] $PCompleteStart, [int] $PCompleteEnd) {
+function Scout-Stripper ($files, $flags, [string] $rootFolder, [int] $PCompleteStart, [int] $PCompleteEnd) {
     log timing trace "[START] Scouting file(s) with rules"
     $q = New-Object System.Collections.Queue
 
     ForEach ($file in $files) {
         $name = "Finding Keys in $(Get-PathTail $rootFolder $file)"
         $ScriptBlock = {
-            PARAM($file, $flags, $IgnoredStringsSet, $killerFlags, $_env)
+            PARAM($file, $flags, $IgnoredStringsSet, $_env)
             $script:log, $script:showDebug, $script:logfile, $script:MaxLogFileSize, $script:LogHistory, $Script:JobName, $Script:JobId = $_env
             log-job-start
 
-            Find-Keys $file $flags $IgnoredStringsSet $killerFlags
+            Find-Keys $file $flags $IgnoredStringsSet 
             log SctStr trace "Found all the keys in $file"
         }
-        $ArgumentList = $file, $flags, $script:Config.IgnoredStringsSet, $killerFlags, $_env
+        $ArgumentList = $file, $flags, $script:Config.IgnoredStringsSet, $_env
         $q.Enqueue($($name, $JobFunctions, $ScriptBlock, $ArgumentList))
     }
     Manage-Job $q $MaxThreads $PCompleteStart $PCompleteEnd
@@ -1033,12 +1044,13 @@ function Sanitising-Stripper ( $finalKeyList, $files, [string] $OutputFolder, [s
 
             log-job-start
 
+            # Remove entire lines that we don't want.
             if ($killerFlags) {
-                log SanStr trace "Filtering out lines that match $killerFlags"
-                $content = [IO.file]::ReadAllLines($file) -notmatch $killerFlags -join "`r`n"
+                log SanStr trace "Filtering out lines that match ($killerFlags)"
+                $content = [IO.file]::ReadAllLines( $file ) -notmatch $killerFlags -join "`r`n"
             }
             else {
-                $content = [IO.file]::ReadAllLines($file) -join "`r`n"
+                $content = [IO.file]::ReadAllLines( $file ) -join "`r`n"
             }
             log SanStr trace "Loaded in content of $file"
 
@@ -1250,7 +1262,8 @@ function Head-Stripper ([array] $files, [String] $rootFolder, [String] $OutputFo
     Write-Progress -Activity "Sanitising" -Id $_tp -Status "Sanitising separate files" -PercentComplete 60
     # Sanitise the files
     log hdStrp message "Sanitising file(s) with master keylist"
-    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $script:Config.killerflag $InPlace 60 99
+    $killerFlags = ($script:Config.flags | Where-Object -Property type -EQ -Value delete).regex -join '|'
+    $sanitisedFilenames = Sanitising-Stripper $finalKeyList $files $OutputFolder $rootFolder $killerflags $InPlace 60 99
     log hdStrp trace "Finished sanitising and exporting files"
 
     log timing trace "[END] Sanitisation Manager"
