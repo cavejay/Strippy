@@ -433,7 +433,7 @@ function eval-config-string ([string] $str) {
     }
 
     # Lets make an array filled with the possible substitions. This is what will need to be updated for future versions
-    $arrayOfFills = @($(get-date).ToString(),"`r`n")
+    $arrayOfFills = @($(get-date).ToString(), "`r`n")
 
     $matches = [regex]::Matches($str, "\{\d\}")
     $out = $str
@@ -625,8 +625,19 @@ function proc-config-file ( $cf ) {
                 }
             }
             'Rules' {
-                # Need to validate keys and the like
-                if ( $line -match '^".*"=".*"$' ) {
+                # rule w/ delimiter for lists
+                if ( $line -match '^".+"=".+"\s*,\s*".+"$') {
+                    # re-find the key/value incase there are '=' in the key
+                    $matches = [regex]::Matches($line, '^"(.+?)"="(.+)","(.+)"$')
+                    $lineKey = $matches.groups[1].value
+                    $lineValue = $matches.groups[2].value
+                    $lineKeyDelimiter = $matches.groups[3].value
+
+                    # Add the rule to the flags array
+                    $config.flags += [System.Tuple]::Create($lineKey, $lineValue)
+
+                } # Normal Rules
+                elseif ( $line -match '^".*"=".*"$' ) {
                     # re-find the key/value incase there are '=' in the key
                     $matches = [regex]::Matches($line, '^"(.*?)"="(.*)"$')
                     $lineKey = $matches.groups[1].value
@@ -634,7 +645,7 @@ function proc-config-file ( $cf ) {
 
                     # Add the rule to the flags array
                     $config.flags += [System.Tuple]::Create($lineKey, $lineValue)
-                }
+                } # 'delete' rules - 
                 elseif ($line -match '^".*"=\\delete\s*$') {
                     $flagtoremoveentirely = $([regex]::Matches($line, '^"(.*?)"=\\delete$')).groups[1].value
                     if ($config.killerflag) {
@@ -829,7 +840,7 @@ $JobFunctions = {
         }
     
         # Lets make an array filled with the possible substitions. This is what will need to be updated for future versions
-        $arrayOfFills = @($(get-date).ToString(),"`r`n")
+        $arrayOfFills = @($(get-date).ToString(), "`r`n")
     
         $matches = [regex]::Matches($str, "\{\d\}")
         $out = $str
