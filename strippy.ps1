@@ -154,7 +154,7 @@ param (
 
 $_startTime = get-date
 $recurseDepth = @(0, 20)[$script:Recurse -eq $true]
-$ignoredFileTypes = 'gif', 'jpeg', 'png', 'jpg', 'exe', 'tif', '7z' | ForEach-Object { ".$_" }
+$ignoredFileTypes = 'gif', 'jpeg', 'png', 'jpg', 'exe', 'tif', '7z', 'py' | ForEach-Object { ".$_" }
 $zipFilesToIgnore = 'plugins.zip', 'remote_plugins.zip'
 
 ## Setup Log functions
@@ -947,19 +947,19 @@ $JobFunctions = {
             $matches = [regex]::matches($f, $pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
             log fndkys trace "Finished using '$pattern' to find matches"
 
+            # Collect all the match Groups that work
+            $matchGroups = $matches | where-object {$_.groups.length -gt 1} | Foreach-object { $_.groups[1].value }
+
             # If we're looking for a list, split the list into it's elements and continue logic with those individual parts
             if ($token.type -eq "list") {
-                $_matches = $matches # preserve original list of matches
-                $matches = $_matches | ForEach-Object {
-                    $_.groups[1].value -split $token.delimiter
+                $_matchGroups = $matchesGroups # preserve original list of matches
+                $matchGroups = $_matchesGroups | ForEach-Object {
+                    $_ -split $token.delimiter
                 }
-            } else {
-                $matches = $matches.groups[1].value
             }
 
             # Grab the value for each match, if it doesn't have a key make one
-            foreach ( $mval in $matches ) {
-                # $mval = $m.groups[1].value
+            foreach ( $mval in $matchGroups ) {
                 log fndkys debug "Matched: $mval"
 
                 # remove any weird extra new-lines
