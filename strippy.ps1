@@ -62,7 +62,7 @@
 .EXAMPLE
     C:\PS> .\strippy.ps1 .\logs -Recurse
 
-    If you need to sanitise an entire file tree, use the -Recurse flag to iterate through each file in a folder and it's subfolders. Strippy's maximum depth at 2.3.0 is capped at 20 directories.
+    If you need to sanitise an entire file tree, use the -Recurse flag to iterate through each file in a folder and it's subfolders. Strippy's maximum depth at 2.4.0 is capped at 20 directories.
     This will output sanitised files to .\logs.sanitised
 
 .EXAMPLE
@@ -73,7 +73,7 @@
 
 .NOTES
     Author: Michael Ball
-    Version: 2.3.0 - 20200208
+    Version: 2.4.0 - 20200208
     Compatability: Powershell 5+
 
 .LINK
@@ -326,7 +326,7 @@ if ( $File -eq "" -and -not $makeConfig ) {
 log init Trace "`r`n`r`n"
 log init Trace "-=H||||||||    Starting Strippy Execution    |||||||||H=-"
 log init Trace "   ||    Author:     michael.ball@dynatrace.com     ||"
-log init Trace "   ||    Version:    2.3.0                         ||"
+log init Trace "   ||    Version:    2.4.0                         ||"
 log params Trace "Strippy was started with the parameters:"
 log params Trace "Sanitisation Target:              $(show-path $file)" # try to resolve the file here. Show nothing if it fails
 log params Trace "Key file:                         $(@('Unset',(show-path $KeyFile))[$KeyFile -ne ''])"
@@ -1688,4 +1688,5 @@ log timing message "Script completed in $_delta seconds"
 
 Clean-Up -NoExit
 log timing trace "[End] Wrap up"
+
 
