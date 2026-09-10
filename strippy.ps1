@@ -476,7 +476,7 @@ function output-keylist ($finalKeyList, $listOfSanitisedFiles, [switch]$quicksav
         }
         
         if (!$quicksave) { log outkey message "`r`nExporting KeyList to $kf" }
-        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( $finalKeyList.GetEnumerator() | Sort-Object -Property name | Out-String )
+        $KeyOutfile = (eval-config-string $script:config.KeyListFirstline) + "`r`n" + $( ($finalKeyList.GetEnumerator() | Sort-Object -Property Key | ForEach-Object { "$($_.Key) - $($_.Value)" }) -join "`r`n" ) + "`r`n"
         $KeyOutfile += "List of files using this Key:`n$( $listOfSanitisedFiles | Out-String)"
         $KeyOutfile | Out-File -Encoding ascii $kf -Force
     }
@@ -1677,7 +1677,8 @@ Write-Progress -Activity "Sanitising" -Id $_tp -Status "Outputting Keylist" -Per
 output-keylist $finalKeyList $listOfSanitisedFiles
 
 log strppy message "`n==========================================================================`nProcessed Keys:"
-log strppy message "$($finalKeyList.GetEnumerator() | Sort-Object -Property name | Out-String)"
+$processedKeysLines = $finalKeyList.GetEnumerator() | Sort-Object -Property Key | ForEach-Object { "$($_.Key) - $($_.Value)" }
+log strppy message ($processedKeysLines -join "`n")
 
 Write-Progress -Activity "Sanitising" -Id $_tp -Status "Finished" -PercentComplete 100
 Start-Sleep 1
