@@ -154,7 +154,7 @@ function Open-StrippyLogWriter {
     if ($dir) { [void][System.IO.Directory]::CreateDirectory($dir) }
     $state.Written = 0
     if ([System.IO.File]::Exists($state.Path)) { $state.Written = (New-Object System.IO.FileInfo $state.Path).Length }
-    $state.Writer = [System.IO.StreamWriter]::new($state.Path, $true, [System.Text.UTF8Encoding]::new($false)
+    $state.Writer = [System.IO.StreamWriter]::new($state.Path, $true, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Initialize-StrippyLog {
