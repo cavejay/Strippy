@@ -4,6 +4,7 @@
 # folders
 !tests
 !configFiles
+!.github
 
 # main scripts
 !strippy.ps1
@@ -16,3 +17,4 @@
 !.gitignore
 !LICENSE
 !README.md
+!qanda.md
