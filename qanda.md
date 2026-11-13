@@ -184,8 +184,8 @@ first; v2's is deterministic). On `cTest` it differs only where v1 corrupted its
 Two bugs in the first draft were only found by running it: `StringBuilder.Append(string, int, int)` called from
 PowerShell copies the whole string per call (a 2 MB file took minutes), and the flat alternation above (Q6a).
 
-Not verified here: Windows PowerShell 5.1 and Windows pwsh. The code avoids 7-only syntax and CI runs both, but
-nothing was executed on Windows in this session. Estimated odds the 5.1 job passes first time: 80%.
+Windows was not available locally. The CI run for this commit passed all 68 tests on Windows PowerShell 5.1,
+Windows pwsh 7 and Ubuntu pwsh 7. No timings were taken on Windows.
 The .NET Framework regex engine in 5.1 is slower than .NET 8's; the prefix tree matters more there, not less.
 
 ## Not done
