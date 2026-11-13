@@ -5,21 +5,30 @@ on:
   pull_request:
 
 jobs:
-  pester:
-    name: ${{ matrix.os }} / ${{ matrix.shell }}
+  pwsh:
+    name: PowerShell 7 on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, shell: pwsh }
-          - { os: windows-latest, shell: pwsh }
-          - { os: windows-latest, shell: powershell }
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-
       - name: Run Pester
-        shell: ${{ matrix.shell }}
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion.ToString()
+          Import-Module Pester -MinimumVersion 5.0.0
+          $result = Invoke-Pester -Path ./strippy.Tests.ps1 -Output Detailed -PassThru
+          if ($result.Result -ne 'Passed') { exit 1 }
+
+  windows-powershell:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Pester
+        shell: powershell
         run: |
           $PSVersionTable.PSVersion.ToString()
           if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 })) {
@@ -27,8 +36,5 @@ jobs:
             Install-Module Pester -MinimumVersion 5.3.0 -Force -SkipPublisherCheck -Scope CurrentUser
           }
           Import-Module Pester -MinimumVersion 5.0.0
-          $config = New-PesterConfiguration
-          $config.Run.Path = './strippy.Tests.ps1'
-          $config.Run.Exit = $true
-          $config.Output.Verbosity = 'Detailed'
-          Invoke-Pester -Configuration $config
+          $result = Invoke-Pester -Path ./strippy.Tests.ps1 -Output Detailed -PassThru
+          if ($result.Result -ne 'Passed') { exit 1 }
