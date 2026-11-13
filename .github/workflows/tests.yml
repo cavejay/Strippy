@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pwsh:
+    name: PowerShell 7 on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Pester
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion.ToString()
+          Import-Module Pester -MinimumVersion 5.0.0
+          $result = Invoke-Pester -Path ./strippy.Tests.ps1 -Output Detailed -PassThru
+          if ($result.Result -ne 'Passed') { exit 1 }
+
+  windows-powershell:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Pester
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion.ToString()
+          if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 })) {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Install-Module Pester -MinimumVersion 5.3.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          }
+          Import-Module Pester -MinimumVersion 5.0.0
+          $result = Invoke-Pester -Path ./strippy.Tests.ps1 -Output Detailed -PassThru
+          if ($result.Result -ne 'Passed') { exit 1 }
