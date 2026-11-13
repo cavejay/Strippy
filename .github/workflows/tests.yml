@@ -4,10 +4,15 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pwsh:
     name: PowerShell 7 on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +30,7 @@ jobs:
   windows-powershell:
     name: Windows PowerShell 5.1
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Run Pester
