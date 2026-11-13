@@ -38,12 +38,18 @@ definitions already in the script, which removes v1's duplicated `$JobFunctions`
 
 **Q6. How should replacement work?**
 v1 looped over every key and ran three full `String.Replace` passes (as-is, upper, lower) over the whole file, so
-cost was keys x file size x 3, plus a `Write-Progress` call per key. v2 builds one regex that is an alternation of
-every escaped key, longest first, case-insensitive, and walks the matches once per file.
-This also fixes a v1 correctness bug: because v1 replaced sequentially, a short key (say `1`) would corrupt aliases
-already written by a longer key (`Address1`). A single pass never re-reads its own output.
-I could not benchmark this (see *Verification*), so I am not quoting a speed-up figure.
-Estimated odds that v2 is materially faster on multi-file, many-key runs: 90%.
+cost was keys x file size x 3, plus a `Write-Progress` call per key. v2 builds one case-insensitive regex that
+matches any key, preferring the longest at each position, and walks the matches once per file.
+This also fixes a v1 correctness bug: because v1 replaced sequentially, a short key (say `1`) corrupted aliases
+already written by a longer key. On the repo's own `tests/cTest` + `nam.conf`, v1 emits `HostnameDMISection02`
+where it means `Hostname1`. A single pass never re-reads its own output.
+
+**Q6a. What shape should that regex be?**
+A prefix tree, not `key1|key2|...`. The first draft used the flat alternation and it was the slowest part of the
+script by far: the engine tries every alternative at every character, so 3,500 keys cost ~5.9 s per 1.5 MB file.
+Folding the keys into a tree (`10\.0\.(?:0\.1(?:2)?|7\.3)`) took the same file to ~54 ms with byte-identical
+output. `RegexOptions.Compiled` was measured and is slower for this shape, so it is not used. A Pester test checks
+the tree against the naive longest-first alternation on 300 random overlapping keys.
 
 **Q7. Stream files line by line to save memory?**
 No. Rules are applied to the whole file with `RegexOptions.Multiline`, exactly like v1, because existing configs
@@ -150,7 +156,37 @@ line ending instead of always CRLF.
 
 **Q28. Add a CI workflow? Nobody asked for one.**
 Yes. "Runs on Linux and Windows pwsh" is a claim that needs something to check it, and a test suite nobody runs
-rots. `.github/workflows/tests.yml` runs Pester on Ubuntu pwsh, Windows pwsh and Windows PowerShell 5.1.
+rots. `.github/workflows/tests.yml` runs Pester 5+ on Ubuntu pwsh, Windows pwsh and Windows PowerShell 5.1.
+
+**Q29. A rule captures a 1 or 2 character value (nam.conf's `DMISection` rule captures section `0` and `1`), so
+every `0` and `1` in every file is replaced, timestamps included. Skip short keys?**
+No - replace them and warn. This is what v1 did too, and for a sanitiser leaving a captured value in the output is
+worse than mangling it. But the output is unreadable and v1 gave no hint why, so v2 prints a warning naming the
+aliases (not the values) and says to tighten the rule or add the values to `IgnoredStrings`. The shipped `nam.conf`
+is left alone; adding `"0","1"` to its `IgnoredStrings` is the fix and is the config owner's call.
+
+**Q30. `-h`, `-help` and no arguments printed blank lines under `pwsh -File ... | more`. Fix?**
+Yes. The help object is rendered to text before it is written. v1 has the same problem on pwsh.
+
+## Verification
+
+Run on Linux, PowerShell 7.4.6, Pester 6.2.0, 4 cores. 68 tests pass.
+
+| Workload | v1 (2.4.0) | v2 (3.0.0) |
+| --- | --- | --- |
+| `tests/cTest` + `nam.conf`: 3 files, 6 MB, 64 keys, ~400k replacements | 6.8 s | 3.5 s |
+| Synthetic: 20 files, 30 MB, 3,500 keys, 600k replacements | 132 s | 7.7 s |
+
+On both workloads v1 and v2 find the same set of keys. On the synthetic one the sanitised output is identical line
+for line once alias numbers are normalised (numbering differs because v1's order depended on which job finished
+first; v2's is deterministic). On `cTest` it differs only where v1 corrupted its own aliases (Q6).
+
+Two bugs in the first draft were only found by running it: `StringBuilder.Append(string, int, int)` called from
+PowerShell copies the whole string per call (a 2 MB file took minutes), and the flat alternation above (Q6a).
+
+Not verified here: Windows PowerShell 5.1 and Windows pwsh. The code avoids 7-only syntax and CI runs both, but
+nothing was executed on Windows in this session. Estimated odds the 5.1 job passes first time: 80%.
+The .NET Framework regex engine in 5.1 is slower than .NET 8's; the prefix tree matters more there, not less.
 
 ## Not done
 

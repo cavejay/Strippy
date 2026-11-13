@@ -675,25 +675,28 @@ function Protect-StrippyText {
     $m = $KeyRegex.Match($Text)
     if (-not $m.Success) { return [pscustomobject]@{ Text = $Text; Count = 0 } }
 
+    # Note: StringBuilder.Append(string, int, int) is not used here on purpose. Called from PowerShell it costs a copy
+    # of the whole text per call, which turned a 2 MB file with 100k matches into minutes. Substring is cheap.
     $sb = New-Object System.Text.StringBuilder -ArgumentList $Text.Length
     $position = 0
     $count = 0
+    $alias = $null
     while ($m.Success) {
-        [void]$sb.Append($Text, $position, $m.Index - $position)
-        $alias = $null
+        $index = $m.Index
+        if ($index -gt $position) { [void]$sb.Append($Text.Substring($position, $index - $position)) }
         if (-not $KeyMap.TryGetValue($m.Value, [ref]$alias)) {
             # The regex and the dictionary can disagree on exotic unicode case folding. Never leave the match in place.
+            $alias = 'SANITISED'
             foreach ($key in $KeyMap.Keys) {
                 if ([string]::Equals($key, $m.Value, [System.StringComparison]::InvariantCultureIgnoreCase)) { $alias = $KeyMap[$key]; break }
             }
-            if ($null -eq $alias) { $alias = 'SANITISED' }
         }
         [void]$sb.Append([string]$alias)
-        $position = $m.Index + $m.Length
+        $position = $index + $m.Length
         $count++
         $m = $m.NextMatch()
     }
-    [void]$sb.Append($Text, $position, $Text.Length - $position)
+    if ($position -lt $Text.Length) { [void]$sb.Append($Text.Substring($position)) }
 
     return [pscustomobject]@{ Text = $sb.ToString(); Count = $count }
 }
@@ -883,21 +886,68 @@ function New-StrippyKeyMap {
     return [pscustomobject]@{ Map = $map; Entries = $entries.ToArray() }
 }
 
-# One regex that matches any key. Longest keys first so 'pineapple' wins over 'apple' at the same position.
+<#
+    One regex that matches any key, and at any position prefers the longest key ('pineapple' over 'apple').
+
+    The obvious pattern is key1|key2|key3..., but the regex engine tries every alternative at every character, so the
+    cost is keys x file size (3,500 keys: ~6 seconds per 1.5 MB file). Instead the keys are folded into a prefix tree:
+        10.0.0.1, 10.0.0.12, 10.0.7.3  ->  10\.0\.(?:0\.1(?:2)?|7\.3)
+    which the engine walks in key-length steps regardless of how many keys there are (same file: ~50 ms).
+    Do not add RegexOptions.Compiled: it was measured slower for this shape, and compile time grows with the key count.
+#>
 function New-StrippyKeyRegex {
     param ($KeyMap)
     if ($null -eq $KeyMap -or $KeyMap.Count -eq 0) { return $null }
 
-    $values = [string[]]@($KeyMap.Keys)
-    $order = New-Object 'int[]' $values.Length
-    for ($i = 0; $i -lt $values.Length; $i++) { $order[$i] = 0 - $values[$i].Length }
-    [Array]::Sort($order, $values)
+    # Sorted by their case-folded form, keys that share a prefix are neighbours
+    $keys = [string[]]@($KeyMap.Keys)
+    $folded = New-Object 'string[]' $keys.Length
+    for ($i = 0; $i -lt $keys.Length; $i++) { $folded[$i] = $keys[$i].ToUpperInvariant() }
+    [Array]::Sort($folded, $keys, [System.StringComparer]::Ordinal)
 
+    # Work items are either literal text to emit, or (lo, hi, depth): the keys lo..hi-1, which all share their
+    # first 'depth' characters. A stack is used instead of recursion because long keys would recurse deeply.
     $sb = New-Object System.Text.StringBuilder
-    foreach ($value in $values) {
-        if ($sb.Length -gt 0) { [void]$sb.Append('|') }
-        [void]$sb.Append([regex]::Escape($value))
+    $stack = New-Object 'System.Collections.Generic.Stack[object]'
+    $stack.Push([int[]](0, $keys.Length, 0))
+    while ($stack.Count -gt 0) {
+        $item = $stack.Pop()
+        if ($item -is [string]) { [void]$sb.Append($item); continue }
+        $lo = $item[0]; $hi = $item[1]; $depth = $item[2]
+
+        # Everything the whole range has in common from here is emitted once
+        $first = $folded[$lo]
+        $last = $folded[$hi - 1]
+        $limit = [Math]::Min($first.Length, $last.Length)
+        $shared = $depth
+        while ($shared -lt $limit -and $first[$shared] -eq $last[$shared]) { $shared++ }
+        if ($shared -gt $depth) { [void]$sb.Append([regex]::Escape($keys[$lo].Substring($depth, $shared - $depth))) }
+        if ($hi - $lo -eq 1) {
+            if ($first.Length -gt $shared) { [void]$sb.Append([regex]::Escape($keys[$lo].Substring($shared))) }
+            continue
+        }
+
+        # A key that ends here makes the rest optional. '?' is greedy, so the longer keys are still tried first.
+        $endsHere = ($first.Length -eq $shared)
+        if ($endsHere) { $lo++ }
+        [void]$sb.Append('(?:')
+        if ($endsHere) { $stack.Push(')?') } else { $stack.Push(')') }
+
+        # One branch per distinct next character. Pushed in reverse so they are emitted in order.
+        $branches = New-Object 'System.Collections.Generic.List[object]'
+        $start = $lo
+        for ($i = $lo + 1; $i -le $hi; $i++) {
+            if ($i -eq $hi -or $folded[$i][$shared] -ne $folded[$start][$shared]) {
+                $branches.Add([int[]]($start, $i, $shared))
+                $start = $i
+            }
+        }
+        for ($b = $branches.Count - 1; $b -ge 0; $b--) {
+            $stack.Push($branches[$b])
+            if ($b -gt 0) { $stack.Push('|') }
+        }
     }
+
     $options = [System.Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant'
     return [System.Text.RegularExpressions.Regex]::new($sb.ToString(), $options)
 }
@@ -1281,6 +1331,15 @@ function Invoke-StrippyMain {
     $keyRegex = New-StrippyKeyRegex $keys.Map
     Write-StrippyLog timing Trace "[END] Merging Keylists"
 
+    # A key is replaced wherever it appears, so a key like '1' rewrites every 1 in every file (timestamps included).
+    # It is still replaced - under-sanitising is the worse failure - but the user needs to know why the output is a mess.
+    $shortKeys = @($keys.Entries | Where-Object { $_.Value.Length -le 2 } | ForEach-Object { $_.Alias })
+    if ($shortKeys.Count -gt 0) {
+        $shown = @($shortKeys | Select-Object -First 10) -join ', '
+        if ($shortKeys.Count -gt 10) { $shown += ', ...' }
+        Write-StrippyLog keychk Warning "$($shortKeys.Count) key(s) are only 1 or 2 characters long ($shown). Every occurrence of those characters will be replaced, which usually makes the output unreadable. Check them in the keylist, then tighten the rule that found them or add the values to IgnoredStrings."
+    }
+
     $header = $config.SanitisedFileFirstLine
     if ($noHeader) { $header = '' }
 
@@ -1347,7 +1406,8 @@ function Invoke-StrippyMain {
 if ($env:STRIPPY_IMPORT_ONLY -or ($MyInvocation.InvocationName -eq '.' -and $PSBoundParameters.Count -eq 0)) { return }
 
 if ($h -or $help -or (-not $File -and -not $makeConfig)) {
-    Get-Help $PSCommandPath -Detailed
+    # Rendered to text here: left as a help object, pwsh prints blank lines when stdout is redirected (-File ... | more)
+    (Get-Help $PSCommandPath -Detailed | Out-String).Trim()
     exit 0
 }
 

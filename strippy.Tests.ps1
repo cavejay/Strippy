@@ -1,5 +1,5 @@
 <#
-    Pester 5 tests for strippy.ps1
+    Pester tests for strippy.ps1 (Pester 5 or later)
 
         Invoke-Pester ./strippy.Tests.ps1
 
@@ -294,6 +294,38 @@ Describe 'Protect-StrippyText' {
     It 'never re-sanitises an alias it has just written' {
         # v1 replaced keys one after another, so the key "1" would corrupt the freshly written "Address1"
         (Protect-TestText '1 and 10.0.0.1' @{ '10.0.0.1' = 'Address1'; '1' = 'Num1' }).Text | Should -Be 'Num1 and Address1'
+    }
+
+    It 'prefers the longest key when keys are prefixes of each other' {
+        $keys = @{ 'app' = 'K1'; 'apple' = 'K2'; 'apple pie' = 'K3'; 'apricot' = 'K4' }
+        (Protect-TestText 'app apple APPLE PIE apple pip apricot apr' $keys).Text | Should -Be 'K1 K2 K3 K2 pip K4 apr'
+    }
+
+    It 'builds a key regex that behaves exactly like a longest-first alternation' {
+        # New-StrippyKeyRegex folds the keys into a prefix tree for speed. This is the slow, obviously correct version.
+        $random = New-Object System.Random -ArgumentList 42
+        $alphabet = 'ab.1 A('
+        $map = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        while ($map.Count -lt 300) {
+            $key = -join (1..$random.Next(1, 7) | ForEach-Object { $alphabet[$random.Next($alphabet.Length)] })
+            if (-not $map.ContainsKey($key)) { $map.Add($key, "<$($map.Count)>") }
+        }
+        $text = -join (1..5000 | ForEach-Object { $alphabet[$random.Next($alphabet.Length)] })
+        $longestFirst = @($map.Keys | Sort-Object -Property @{ Expression = { $_.Length }; Descending = $true } | ForEach-Object { [regex]::Escape($_) }) -join '|'
+        $reference = [regex]::new($longestFirst, [System.Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')
+        $expected = Protect-StrippyText -Text $text -KeyRegex $reference -KeyMap $map
+        $actual = Protect-StrippyText -Text $text -KeyRegex (New-StrippyKeyRegex $map) -KeyMap $map
+        $actual.Count | Should -Be $expected.Count
+        $actual.Text | Should -BeExactly $expected.Text
+    }
+
+    It 'handles a single key and keys containing regex syntax or non-ASCII text' {
+        (Protect-TestText 'only one here' @{ 'one' = 'K1' }).Text | Should -Be 'only K1 here'
+        # Built from char codes so this file stays ASCII (Windows PowerShell 5.1 reads BOM-less scripts as ANSI)
+        $lower = 'caf' + [char]0xE9
+        $upper = 'CAF' + [char]0xC9
+        $other = 'na' + [char]0xEF + 've'
+        (Protect-TestText "a|b [x] $lower $upper $other" @{ 'a|b' = 'K1'; '[x]' = 'K2'; $lower = 'K3' }).Text | Should -Be "K1 K2 K3 K3 $other"
     }
 
     It 'returns the text untouched when there are no keys' {

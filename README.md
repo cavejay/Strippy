@@ -83,6 +83,8 @@ The `configFiles` directory contains work-in-progress configs for particular app
 
 - `-log` writes a log (`-logfile`, default `.\strippy.log`); `-showDebug` adds detail. The log includes how many times each rule matched. `timecheck.ps1` summarises where the time went.
 - Files are processed in parallel (`-MaxThreads`, default 5). Each thread holds one whole file in memory, so reduce it for very large files.
+- Run time depends on file size and the number of replacements, not on the number of keys. 20 files / 30 MB / 3,500 keys takes about 8 seconds (2.4.0: over 2 minutes).
+- A warning is printed when a rule captures a 1 or 2 character value, because replacing every `1` in a log wrecks it. Tighten the rule or add the value to `IgnoredStrings`.
 
 ## Upgrading from 2.x
 
@@ -105,7 +107,7 @@ The reasoning for each is in [qanda.md](qanda.md).
 
 ```powershell
 . ./strippy.ps1                       # functions only
-Invoke-Pester ./strippy.Tests.ps1     # Pester 5
+Invoke-Pester ./strippy.Tests.ps1     # Pester 5 or later
 ```
 
 CI runs the tests on Linux (pwsh), Windows (pwsh) and Windows PowerShell 5.1.
